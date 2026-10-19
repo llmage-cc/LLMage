@@ -53,7 +53,7 @@ Which phases stop a skip is a preference, not a rule. **Preferences → Game - P
 
 - Stop skips on declare attackers when attackers are available (on by default).
 - Stop skips when attacked and on declare blockers when any blockers are available (on by default).
-- Stop skips when attacked when zero blockers are available (off by default).
+- Stop skips when attacked and zero blockers are available (off by default).
 - Stop a stack skip on new objects, or only when the stack is empty.
 - Stop a main-step skip on any main step, or only on your main step.
 - Stop an end-step skip on any end step, or only on the opponent's end step.

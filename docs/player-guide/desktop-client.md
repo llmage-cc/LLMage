@@ -127,7 +127,7 @@ If Player 1 is an AI seat, the client joins the AI seats, starts the match and o
 
 **Join** on a waiting table opens the join dialog: choose your deck, enter the password if the table has one, and confirm.
 
-**Watch** opens a running game as a spectator. Spectators see the board, the stack and the game log; hand cards stay hidden until the owner grants a request. Right-click a player panel to ask to see that hand, once per game, and right-click the battlefield for **Stop watching**.
+**Watch** opens a running game as a spectator. Spectators see the board, the stack and the game log; hand cards stay hidden until the owner grants a request. Right-click a player panel to ask, once per game, to see that player's hand, and right-click the battlefield for **Stop watching**.
 
 **Show** opens the tournament window: tournament name, type, state, start and end time, a standings table with location, player name, state, points, results and history, and the **Quit Tournament** and **Close Window** buttons.
 

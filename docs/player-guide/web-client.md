@@ -60,7 +60,7 @@ The proxy has no field of its own: the address you loaded the page from is the p
 
 Use `127.0.0.1`, not `localhost`. On a dual-stack machine `localhost` resolves to the IPv6 loopback first while the XMage server listens on IPv4, and the handshake fails as if the server were offline.
 
-The button shows **Connecting...** while the session is established; failures print above it.
+The button shows **Connecting...** while the session is being established; failures print above it.
 
 The username is kept in the tab's session storage, so a reload refills it and reconnects automatically (**Reconnecting to XMage**). The password and auth token are never stored.
 

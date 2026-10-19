@@ -175,7 +175,7 @@ These scripts exercise the real proxy and server path. Each reserves its own por
 
 | Harness | What it proves |
 |---|---|
-| `scripts/run-bot-game.sh` | A headless LLM-vs-LLM game completes; exit 0 complete, 1 startup failure, 2 timeout |
+| `scripts/run-bot-game.sh` | A headless LLM-vs-LLM game completes; exit 0 for a completed game, 1 for a startup failure, 2 for timeout |
 | `scripts/pipeline.sh` | Server, bot game, and post-game analysis run as one loop |
 | `Mage.WebProxy/scripts/verify-capability-gating.py` | The `connected` capabilities match the server kind, and LLM messages are rejected on a stock server |
 | `Mage.WebProxy/scripts/verify-capability-gating-legc.py` | A stock proxy against an LLMage server connects, probes `llm=true`, and reads `MatchView` without a serialization error |

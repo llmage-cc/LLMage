@@ -107,8 +107,8 @@ fresh clone deployed from the list below alone starts with no game types. (`rele
 not tracked — `Mage.Server/release/` only ships `config/` and the launcher scripts in git.)
 
 The script also encodes the layout rule: the Maven assembly puts player/game plugins in its
-`plugins/`, but bootstrap reads them from `release/lib/` — so they are copied into **both**
-`release/lib/` (for bootstrap) and the LLM player + web proxy go to `release/plugins/`.
+`plugins/`, but bootstrap reads them from `release/lib/` — so the player/game plugins are copied into
+`release/lib/` (for bootstrap), while the LLM player + web proxy go to `release/plugins/`.
 
 <details><summary>Manual copy list (what the script automates)</summary>
 
@@ -331,9 +331,8 @@ Key things to know about `LLMPlayer.java`:
 - **Join P1 first** when P1 is AI. The `NewTournamentDialog` collects per-player decks
   and configs starting from P1.
 - **`startTournament` accepts `READY_TO_START`** state.
-- **Health check behavior**: The server health check removes sub-tables between games.
-  `isMatchTableStillValid` returns `true` for `tournamentSubTable` — this is correct,
-  don't change it.
+- **Health check behavior**: sub-table cleanup / `isMatchTableStillValid` — see the
+  warning under "CI Flakes" above; don't change it.
 - **`TableManagerImpl.addPlayer`** creates a fresh `LLMPlayer` copy + `Deck.copy()` for
   sub-tables. This ensures clean state per round.
 - **Per-player configs**: Each `TournamentPlayer` carries its `LLMPlayerConfig` through

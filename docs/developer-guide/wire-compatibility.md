@@ -58,7 +58,7 @@ Both ends enforce equality:
 
 - The server's `connectUser` and `connectAdmin` reject a client whose version does not compare equal to the server's.
 - The client's `SessionImpl.connectStart` reads the server state after login and rejects a server whose version does not compare equal to the client's.
-- The proxy uses the same `MageVersion` source for its login and registration dials, so it is subject to the same check.
+- The proxy uses the same `MageVersion` source for its login and registration calls, so it is subject to the same check.
 
 The practical consequence is that a proxy, desktop client, and server must come from the same release. A stock server is compatible only when it reports the same version string; the capability probe runs after the version check, so a different release never reaches it.
 
@@ -102,7 +102,7 @@ When `llm` is false, the frontend hides the LLM tab, the LLM seat option, the pe
 | `fetch_personalities` | Error: server does not support LLM features |
 | `llm_decision` | Error: server does not support LLM features |
 | `llm_error` | Error: server does not support LLM features |
-| `replay_seek` | Error: server does not support replay seeking |
+| `replay_seek` | Error: server does not support LLM features |
 | `create_table` with an LLM seat or `llmConfig` | Rejected |
 | `create_tournament` with LLM seats or configs | Rejected |
 

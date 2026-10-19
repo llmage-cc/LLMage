@@ -54,7 +54,7 @@ No. The repository ships source only. You build once with Maven, deploy the jars
 
 ## How many LLM seats can a game have?
 
-Any seat set to `Computer - LLM`. The server has two named configurations, one for the first LLM seat and one for the second, and every LLM seat in a table or tournament can override the model, endpoint, effort, personality, and conversation settings individually. See [LLM opponents](../player-guide/llm-opponents.md).
+Any seat can be set to `Computer - LLM`. The server has two named configurations, one for the first LLM seat and one for the second, and every LLM seat in a table or tournament can override the model, endpoint, effort, personality, and conversation settings individually. See [LLM opponents](../player-guide/llm-opponents.md).
 
 ## Can I watch two LLMs play each other?
 
@@ -62,7 +62,7 @@ Yes. Use `\botgame --llm2` in chat, or create a table and set both seats to `Com
 
 ## Can I pick the bot's name and personality?
 
-Yes. Each game assigns names from a 35-name pool, and each name maps to a written personality and playstyle that can be injected into the system prompt. You can pin a name per seat, force a personality, or turn the personality section off entirely.
+Yes. Each game assigns names from a 100-name pool; 35 of them map to a written personality and playstyle that can be injected into the system prompt, and the rest get a generic one. You can pin a name per seat, force a personality, or turn the personality section off entirely.
 
 ## Does the LLM see my hand or other hidden information?
 

@@ -76,7 +76,7 @@ Commander is a family of game types with its own deck validators. You choose a C
 - **Centurion Commander** — a two-player Commander variant with its own deck rules.
 - **Penny Dreadful Commander** — Commander restricted to the Penny Dreadful card pool.
 - **Freeform Commander** — Commander structure with a relaxed card pool, intended for casual tables.
-- **Freeform Unlimited Commander** — the same idea without the usual deck-size restriction, and the only Commander game type that allows sideboarding.
+- **Freeform Unlimited Commander** — the same idea without the usual deck-size restriction.
 - **Brawl** — a smaller singleton format with a commander, in a duel or a free-for-all.
 - **Tiny Leaders** — a two-player singleton format with a low mana-value ceiling.
 - **Oathbreaker** — a planeswalker and a signature spell lead the deck, in a duel or a free-for-all.

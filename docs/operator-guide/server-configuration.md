@@ -139,7 +139,7 @@ their own per-seat values instead, so keep the two sources in step.
 | `llm2Endpoint`, `llm2Model`, `llm2ReasoningEffort` | Defaults for the second LLM seat used by LLM-versus-LLM games. Empty values inherit the primary seat. |
 | `llm2ApiKey` | Second-seat key. Leave it empty and use the environment instead. |
 
-A JVM property of the same name always wins over the file. The complete property list, the
+The matching JVM property (`xmage.llm.*` / `xmage.llm2.*`, for example `xmage.llm2.model` for the `llm2Model` attribute) always wins over the file. The complete property list, the
 precedence rules, and the per-seat overrides are on the [LLM providers](llm-providers.md) page.
 
 ## Runtime directories
@@ -164,10 +164,10 @@ Sizes, retention, and backup of these directories are covered in [Operations](op
 ## Logging
 
 The server ships a log4j configuration inside its JAR and uses it by default. A sample external
-configuration sits in `config/log4j.properties` and is only used when you ask for it:
+configuration sits in `Mage.Server/release/config/log4j.properties` and is only used when you ask for it:
 
 ```bash
--Dlog4j.configuration=file:./config/log4j.properties
+-Dlog4j.configuration=file:./Mage.Server/release/config/log4j.properties
 ```
 
 The sample defines a console appender, an unrolled file appender, a size-rolled appender
@@ -219,9 +219,9 @@ command line by any local user.
 | `LLM1_MODEL`, `LLM1_ENDPOINT`, `LLM1_EFFORT` | server launcher | Primary LLM seat defaults. |
 | `LLM2_MODEL`, `LLM2_ENDPOINT`, `LLM2_EFFORT` | server launcher | Second LLM seat defaults. |
 | `LLM1_KEY`, `LLM2_KEY` | server process | Provider keys. Exported, never passed as flags. |
-| `LLM_CONV_MAX_EXCHANGES`, `LLM_CONV_MAX_CHARS`, `LLM_CONV_THINK_CHARS_PER_MSG` | server launcher | Conversation memory limits. `0` means unlimited. |
-| `LLM_SUMMARIZE_CONTEXT_RATIO`, `LLM_SUMMARIZE_TARGET_RATIO`, `LLM_SUMMARIZE_KEEP_EXCHANGES` | server launcher | Summarization thresholds. |
-| `LLM_MAX_TOKENS`, `LLM_EFFORT_LEVELS` | server launcher | Output cap and retry descent ladder. |
+| `LLM_CONV_THINK_CHARS_PER_MSG` | server launcher | Conversation memory limits. The launcher hardcodes `LLM_CONV_MAX_EXCHANGES=0` and `LLM_CONV_MAX_CHARS=0`; `0` means unlimited. |
+| `LLM_SUMMARIZE_CONTEXT_RATIO`, `LLM_SUMMARIZE_TARGET_RATIO`, `LLM_SUMMARIZE_KEEP_EXCHANGES` | server launcher | Summarization thresholds. Launcher constants (`0.5`, `0.25`, `5`), not read from the environment. |
+| `LLM1_EFFORT_LEVELS`, `LLM2_EFFORT_LEVELS` | server launcher | Retry descent ladder for empty answers. The output cap is the launcher constant `LLM_MAX_TOKENS=65536`. |
 | `XMAGE_KEY_FILE` | hosted launcher | File containing the provider key. Must live outside the repository. |
 | `XMAGE_LLM_PROVIDER`, `XMAGE_LLM_ENDPOINT`, `XMAGE_LLM_MODEL`, `XMAGE_LLM_EFFORT` | hosted launcher | Provider preset and its overrides. |
 | `WEBPROXY_AUTH_TOKEN` | web proxy | Shared secret required on connect. |

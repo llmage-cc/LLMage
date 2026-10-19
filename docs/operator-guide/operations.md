@@ -66,7 +66,7 @@ checks are useful on any server.
 | Script | Mode | Reports |
 |---|---|---|
 | `scripts/monitor-games.sh` | One-shot | Server presence, active game runners, FATAL and error counts, and per-game transcript age, size, latest turn, and post-game file count. Warns when a transcript has not changed for fifteen minutes. |
-| `scripts/monitor-watch.sh` | Background loop, 300 second interval | The same stall signal plus new error lines appended to the server log since the previous pass. Exits when no game runners remain. |
+| `scripts/monitor-watch.sh` | Background loop, 300-second interval | The same stall signal plus new error lines appended to the server log since the previous pass. Exits when no game runners remain. |
 
 `monitor-games.sh` exits non-zero when the server is not running, and with a distinct code when
 the log file is missing while the process is up. Both scripts treat a missing log as a failure

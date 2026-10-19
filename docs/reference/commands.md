@@ -87,7 +87,7 @@ These are developer gates, not player tools. They catch the class of change that
 
 ## Verification harnesses (development and test only)
 
-Each harness drives a live stack, reserves its own ports, and starts its own server, proxy, and often a mock provider. Run one at a time.
+The live-stack harnesses each reserve their own ports and start their own server, proxy, and often a mock provider — run one at a time; the offline ones need no stack.
 
 | Script | What it proves |
 |---|---|
@@ -101,7 +101,7 @@ Each harness drives a live stack, reserves its own ports, and starts its own ser
 | `verify-replay-retention.sh` | That the retention decision table, deletions, and safety rails hold on synthetic fixtures. |
 | `ainames-launch-stack.sh` | Stands up the stack used to check that web-created seats get generated names, not placeholders. |
 
-The live harness wrappers exit `0` when every check passes, `2` when a check fails, and `3` when the stack or a prerequisite is missing, so a broken setup is never mistaken for a product failure. The two offline replay harnesses differ: they exit `1` for a failed phase and `2` for a usage or build error.
+The live harness wrappers exit `0` when every check passes, `2` when a check fails, and `3` when the stack or a prerequisite is missing, so a broken setup is never mistaken for a product failure. The two offline replay harnesses differ: both exit `1` for a failed phase, but only the cross-game harness defines `2` for a usage or build error.
 
 Each wrapper has companion drivers in the same directory (the `reasonverify-*` and `ainames-*` families, a `.py` driver beside each `.sh` wrapper, and the Java driver behind the cross-game harness). Run the wrapper, not the companion.
 

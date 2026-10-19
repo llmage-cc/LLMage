@@ -37,7 +37,7 @@ scripts/deploy-release.sh
 
 ### The server runs but `mageserver.log` never appears
 
-**Symptom.** `monitor-games.sh`, `monitor-watch.sh`, and `pipeline.sh` stop with "mageserver.log is MISSING while the server is running", or report zero errors while the console shows activity.
+**Symptom.** `monitor-games.sh` and `monitor-watch.sh` stop with "mageserver.log is MISSING while the server is running" (`pipeline.sh` fails on the same condition with its own wording), or report zero errors while the console shows activity.
 
 **Likely cause.** The web-proxy jar is sitting in `Mage.Server/release/lib/`. Both the server jar and the proxy jar carry a root `log4j.properties`, and the JVM picks the first one it finds by classpath order. `lib/*` precedes `plugins/*`, so the proxy's configuration wins, the server logs only to standard output, and no file is written.
 
@@ -48,7 +48,7 @@ rm -f Mage.Server/release/lib/mage-web-proxy-*.jar
 scripts/deploy-release.sh
 ```
 
-Confirm the boot line in the console log reads `- log appender: console` followed by `- log appender: logfile`. A line reading `- log appender: stdout` means the proxy's configuration is still winning.
+Confirm the boot lines in the console log read `- log appender: console` followed by `- log appender: logfile`. A line reading `- log appender: stdout` means the proxy's configuration is still winning.
 
 ### A port is already in use
 
@@ -98,7 +98,7 @@ The script fails loudly and names every dangling link. `start-server.sh` runs it
 
 **Symptom.** The web proxy refuses to start, reporting that the cards database is empty or incomplete.
 
-**Likely cause.** The proxy opens `db/cards.h2.mv.db` from its working directory and deliberately never scans card classes to populate it. A new checkout, or a database deleted by a clean, leaves it with nothing to serve.
+**Likely cause.** The proxy opens `db/cards.h2.mv.db` from its working directory and deliberately never scans card classes to populate it. A new checkout, or a database file removed by `git clean -xdf` or by hand — `mvn clean` never touches `db/` — leaves it with nothing to serve.
 
 **Fix.** Start the server once so it builds the database, or copy a populated `cards.h2.mv.db` into `db/` before starting the proxy. The proxy and the server can share the same database file.
 
@@ -201,7 +201,7 @@ export LLM1_CONTEXT_WINDOW=128000
 
 **Symptom.** A game refuses to start, or the server reports that the deck imported as only a few cards.
 
-**Likely cause.** A `.dck` file whose card lines lack `[SET:NUMBER]` codes. The `.dck` importer skips any line it cannot match, so a plain-name list becomes an empty deck. A file with an unrecognised extension imports as an empty deck as well.
+**Likely cause.** A `.dck` file whose card lines lack `[SET:NUMBER]` codes. The `.dck` importer skips any line it cannot match, so a plain-name list becomes an empty deck. A file with an unrecognized extension imports as an empty deck as well.
 
 **Fix.** Use a `.txt` decklist, which accepts plain card names, or add set codes to every line:
 
@@ -209,7 +209,7 @@ export LLM1_CONTEXT_WINDOW=128000
 4 [SET:NUMBER] Card Name
 ```
 
-Bot-game deck paths must be absolute. A deck that imports as fewer than fifteen cards is refused rather than starting a degenerate match.
+Bot-game deck paths must be absolute. A deck that imports as fewer than fifteen cards is refused rather than allowed to start a degenerate match.
 
 ### A replay will not open: "legacy gzip replay container"
 

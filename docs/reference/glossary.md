@@ -45,7 +45,7 @@ The vocabulary used across this wiki. Terms are grouped by subject; within each 
 | **Model** | The identifier the provider uses for the language model, for example a name with a size or variant suffix. Set per seat. |
 | **Endpoint** | The chat-completions URL the player posts to. Any OpenAI-compatible service works. |
 | **Personality** | A written character description and playstyle instruction attached to a bot name and injected into the system prompt when enabled. |
-| **Name pool** | The 35 bot names the server assigns from. Each name maps to one personality, and names are unique within a game. |
+| **Name pool** | The 100 bot names the server assigns from. Thirty-five map to a written personality, the rest to a generic one, and names are unique within a game. |
 | **Gameplan** | The short strategy the model writes after reading its decklist, before the first turn. It stays in the system prompt for the rest of the game. |
 | **System prompt** | The standing instructions sent with every request: rules for the answer format, the full decklist, the gameplan, and the personality section. |
 | **Thinking dialect** | The shape of the reasoning request: `effort` sends a reasoning-effort level, `budget` sends a token budget for thinking. |

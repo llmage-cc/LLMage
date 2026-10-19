@@ -195,10 +195,10 @@ Test-scope only, not shipped in any runtime archive: `junit:junit` 4.13.2
 
 Per the upstream `readme-icons.txt` in that directory, the card icons come from
 three sources; the original/ subfolders keep unmodified source files and
-prepared/ contains edited derivatives. All 25 files in prepared/ carry an
+prepared/ contains edited derivatives. 24 of the 25 files in prepared/ carry an
 attribution header naming the source (16 Font Awesome, 6 Bootstrap, 2 Pixabay);
-`Mage.Client/src/main/resources/card/icons/prepared/child-reaching.svg`
-additionally retains the embedded Font Awesome notice.
+the 25th, `Mage.Client/src/main/resources/card/icons/prepared/child-reaching.svg`,
+retains only the embedded Font Awesome notice.
 
 - **Font Awesome Free** (5.15.2 / 6.4.0) — https://fontawesome.com —
   Icons licensed CC BY 4.0 (see https://fontawesome.com/license/free).

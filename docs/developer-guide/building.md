@@ -66,7 +66,7 @@ export MAVEN_OPTS=-Xmx9g
 mvn clean install -DskipTests
 ```
 
-This compiles every module, runs the annotation processors and protobuf generation, and installs the artifacts into the local Maven repository. A clean full build is the reliable starting point after a branch switch or a dependency change.
+This compiles every module, runs the protobuf generation, and installs the artifacts into the local Maven repository. A clean full build is the reliable starting point after a branch switch or a dependency change.
 
 For a quicker iteration on one module, include its dependencies:
 

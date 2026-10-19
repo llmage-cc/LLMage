@@ -11,7 +11,7 @@ run is always a build.
 | Component | Minimum | Purpose |
 |---|---|---|
 | JDK | 21 | Compiles and runs the server, desktop client, and proxy |
-| Maven | 3.8 | Builds every module |
+| Maven | 3.9+ | Builds every module |
 | Node.js and npm | A current LTS release | Builds the web client bundle only |
 | Git | Any | Clones the repository |
 | An OpenAI-compatible endpoint | — | Required for LLM seats, not for the build |

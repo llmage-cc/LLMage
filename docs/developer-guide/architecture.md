@@ -56,8 +56,8 @@ The desktop client and the web proxy both speak to the server through `mage.remo
 
 | Module | Responsibility |
 |---|---|
-| `Mage` | Game rules, card and ability APIs, `GameImpl`, `GameState`, player base classes, `PlayerType`, `Personality`, `LLMPlayerConfig`, data collectors |
-| `Mage.Common` | Remote interfaces, `SessionImpl`, client callbacks, shared view objects (`GameView`, `MatchView`, `Seat`), `MageVersion`, the client-key bridge registry |
+| `Mage` | Game rules, card and ability APIs, `GameImpl`, `GameState`, player base classes, `PlayerType`, `Seat`, `Personality`, `LLMPlayerConfig`, data collectors |
+| `Mage.Common` | Remote interfaces, `SessionImpl`, client callbacks, shared view objects (`GameView`, `MatchView`, `SeatView`), `MageVersion`, the client-key bridge registry |
 | `Mage.Server` | Server bootstrap, configuration, lobby/table/game/tournament managers, RPC implementation, replay service, plugin loader |
 | `Mage.Sets` | Card implementations |
 | `Mage.Client` | Swing desktop client, including the LLM configuration and debug dialogs |
@@ -183,7 +183,7 @@ flowchart LR
 | `/config` | Deployment flags read by the connect form: `hideServerTarget`, `llmage` |
 | `/llm-relay` | Same-origin byte relay for browser-key provider calls; present only in the LLMage flavor |
 
-A `WebProxySession` creates a `WebProxyClient` and a `SessionImpl`, connects to the server, and translates browser JSON into `SessionImpl` calls. Seventy message types cover lobby, tables, decks, game actions, replay, card search, and LLM seats; callbacks travel the other way.
+A `WebProxySession` creates a `WebProxyClient` and a `SessionImpl`, connects to the server, and translates browser JSON into `SessionImpl` calls. Seventy-two message types cover lobby, tables, decks, game actions, replay, card search, and LLM seats; callbacks travel the other way.
 
 The proxy is where deployment policy lives: origin allow-listing for the WebSocket upgrade, a per-host connection cap, anonymous-name and table-ownership checks, a start-game join gate, and the model-endpoint allow-list used by model fetching, seat configuration, and `/llm-relay`. These checks run before the server call.
 

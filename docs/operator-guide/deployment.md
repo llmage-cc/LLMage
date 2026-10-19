@@ -34,7 +34,7 @@ The web proxy speaks plain HTTP. TLS belongs in front of it, at a reverse proxy 
 | Component | Version | Used for |
 |---|---|---|
 | Java JDK | 21 | Server, proxy, and desktop client. |
-| Maven | 3.8 or newer | One-time build from source. |
+| Maven | 3.9 or newer | One-time build from source. |
 | Node.js and npm | current LTS | Building the web frontend. |
 | `zstd` | any recent | Replay compression and the source backup script. |
 | A reverse proxy | nginx, Caddy, or similar | TLS and the public hostname. |
@@ -123,7 +123,7 @@ A proxy JAR in `lib/` silently redirects the server's logging to the console and
 3. Export the path and start:
 
    ```bash
-   export XMAGE_KEY_FILE="$KEY_FILE"
+   export LLM1_KEY="$(cat "$KEY_FILE")"
    scripts/start-server.sh
    ```
 
@@ -140,7 +140,7 @@ most sourced from an environment variable you can override.
 | Default effort | `high` for the primary seat | `low`, overridable with `XMAGE_LLM_EFFORT` |
 | Use it for | A local Ollama or any endpoint you configure by hand | A hosted provider where both seats share one key |
 
-`start-server-charm.sh` refuses to start when `XMAGE_KEY_FILE` is unset or unreadable, and refuses
+`start-server-charm.sh` refuses to start when `XMAGE_KEY_FILE` is set but unreadable, or unset with none of the fallback paths readable, and refuses
 an empty key file. It has no fallback key path inside the repository, by design.
 
 ## Start the web proxy
@@ -161,7 +161,7 @@ following environment variables are read by the launcher and turned into system 
 | `XMAGE_ALLOWED_XMAGE_HOSTS` | `webproxy.allowedXmageHosts` | Hosts the proxy may dial. Defaults to loopback. |
 | `XMAGE_ALLOWED_MODEL_HOSTS` | `webproxy.allowedModelHosts` | Hosts the model list and relay may reach. Defaults to loopback. |
 | `XMAGE_PROXY_ALLOWED_ORIGINS` | `webproxy.allowedOrigins` | Extra origins accepted for the WebSocket upgrade. |
-| `WEBPROXY_AUTH_TOKEN` | `webproxy.authToken` | Shared secret required on connect. |
+| `WEBPROXY_AUTH_TOKEN` | `webproxy.authToken` | Shared secret required on connect or registration; the proxy reads this variable itself, not the launcher. |
 
 The launcher also forces IPv4 for its JVM. On a dual-stack host, `localhost` resolves to `::1`
 first while the game server listens on IPv4, and the handshake fails with a misleading
@@ -250,7 +250,7 @@ ReadWritePaths=/opt/llmage
 WantedBy=multi-user.target
 ```
 
-`server.env` holds `XMAGE_KEY_FILE` and any `LLM*` overrides. Create it mode `600` and owned by
+`server.env` holds `LLM1_KEY` (the literal key value) and any `LLM*` overrides. Create it mode `600` and owned by
 the service account; systemd reads it as root before dropping privileges. `proxy.env` holds
 `WEBPROXY_AUTH_TOKEN` and the allowlist variables. Keeping secrets in environment files avoids
 putting them on a command line, where any local user can read them.
@@ -291,7 +291,7 @@ server {
 Caddy needs no explicit upgrade configuration; a `reverse_proxy 127.0.0.1:8090` directive handles
 WebSocket traffic.
 
-Two settings must agree with the public hostname:
+Two settings matter when the proxy goes public:
 
 - Add the exact public origin to the proxy's origin allowlist, for example
   `XMAGE_PROXY_ALLOWED_ORIGINS=https://example.com`. The proxy rejects a WebSocket upgrade from an

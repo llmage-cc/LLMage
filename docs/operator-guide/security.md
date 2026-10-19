@@ -6,7 +6,7 @@ reaching the game port directly, past every web-client guard, and someone knocki
 during a game. This page describes the trust boundaries, the guards the fork adds, and the settings
 that decide whether those guards are doing anything.
 
-> **Who this is for:** an operator exposing a server to people you do not personally know.
+> **Who this is for:** an operator exposing a server to people they do not personally know.
 
 ## Trust model
 

@@ -55,8 +55,8 @@ either step aborts seat creation, not the game.
 | `xmage.llm.key` | `LLM1_KEY` | empty | Provider key. Use the environment, not this property. |
 | `xmage.llm.model_context_window` | `LLM1_CONTEXT_WINDOW` | `131072`, not explicit | Total context in tokens. Setting it also disables detection. |
 | `xmage.llm.stream` | `LLM1_STREAM` | `true` | Stream tokens as they arrive. |
-| `xmage.llm.verbose` | `LLM1_VERBOSE` | `false` | Log full prompts and responses. |
-| `xmage.llm.transcript_dir` | — | none | Write one transcript file per game and seat. Set `llmTranscriptDir` in `config.xml` or this property. |
+| `xmage.llm.verbose` | `LLM1_VERBOSE` | `false` in code; the launcher forces `true` | Log full prompts and responses. |
+| `xmage.llm.transcript_dir` | — | `none` in code; the launcher passes `gamelogs` | Write one transcript file per game and seat. Set `llmTranscriptDir` in `config.xml` or this property. |
 | `xmage.llm.max_tokens` | `LLM_MAX_TOKENS` | `0`; the launcher sets `65536` | Cap on total output, reasoning included. `0` omits the field. |
 
 The `xmage.llm2.*` names mirror these. There is no third seat: LLM-versus-LLM games use two.
@@ -66,7 +66,7 @@ The `xmage.llm2.*` names mirror these. There is no third seat: LLM-versus-LLM ga
 | Property | Launcher variable | Default | Meaning |
 |---|---|---|---|
 | `xmage.llm.reasoningeffort` | `LLM1_EFFORT` | `max` in code, `high` in the launcher | One of `low`, `medium`, `high`, `max`, as the model defines them. |
-| `xmage.llm.reasoning_effort_levels` | `LLM_EFFORT_LEVELS` | `max,high,medium,low` | Descent ladder for empty answers, highest first. |
+| `xmage.llm.reasoning_effort_levels` | `LLM1_EFFORT_LEVELS` | `max,high,medium,low` | Descent ladder for empty answers, highest first. |
 | `xmage.llm.thinking_dialect` | `LLM1_THINKING_DIALECT` | `effort` | `effort` sends `reasoning_effort`; `budget` sends `thinking.budget_tokens`. |
 | `xmage.llm.thinking_budget_tokens` | `LLM1_THINKING_BUDGET` | `16000,8000,4000,1000` | Budget ladder used in `budget` mode. |
 | `xmage.llm.thinking_max_tokens` | `LLM1_THINKING_MAX_TOKENS` | `32768` | Hard cap on reasoning tokens in `effort` mode. `0` disables the cap. |

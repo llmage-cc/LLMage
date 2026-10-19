@@ -49,7 +49,7 @@ In the game-room chat, the `\botgame` command creates a two-seat table, fills th
 | Command | Result |
 |---|---|
 | `\botgame` | LLM seat against the built-in computer opponent |
-| `\botgame Legacy` | Same, with Legacy as the deck type |
+| `\botgame Constructed - Legacy` | Same, with `Constructed - Legacy` as the deck type |
 | `\botgame --llm2` | Two LLM seats against each other |
 | `\botgame --llm2 --bo3` | Two LLM seats, best of three |
 | `\botgame --llm2 <deck-one.dck> <deck-two.dck>` | Two LLM seats with named deck files |

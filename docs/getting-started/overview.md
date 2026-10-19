@@ -102,7 +102,7 @@ Both connect to the server on port 17171. Play against an LLM seat from either o
 | Component | Needed for | Notes |
 |---|---|---|
 | JDK 21 | Building and running anything | The launch scripts pass JDK 21 module flags |
-| Maven 3.8 or newer | Building from source | The repository ships source only |
+| Maven 3.9 or newer | Building from source | The repository ships source only |
 | An OpenAI-compatible endpoint | LLM seats | Local Ollama, a hosted API, or any server that speaks the chat-completions API |
 | Node.js and npm | The web client only | Builds the React bundle |
 | Git | Getting the source | |

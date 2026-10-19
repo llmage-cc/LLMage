@@ -16,6 +16,7 @@ public enum SubType {
     LESSON("Lesson", SubTypeSet.SpellType),
     OMEN("Omen", SubTypeSet.SpellType),
     TRAP("Trap", SubTypeSet.SpellType),
+    VENGEANCE("Vengeance", SubTypeSet.SpellType),
 
     // 205.3q Battles have a unique subtype, called a battle type. That battle type is Siege.
     SIEGE("Siege", SubTypeSet.BattleType),
@@ -61,6 +62,7 @@ public enum SubType {
     BOBBLEHEAD("Bobblehead", SubTypeSet.ArtifactType),
     BOOK("Book", SubTypeSet.ArtifactType),
     CLUE("Clue", SubTypeSet.ArtifactType),
+    COMMUNICATOR("Communicator", SubTypeSet.ArtifactType),
     CONTRAPTION("Contraption", SubTypeSet.ArtifactType),
     EQUIPMENT("Equipment", SubTypeSet.ArtifactType),
     FOOD("Food", SubTypeSet.ArtifactType),
@@ -87,6 +89,7 @@ public enum SubType {
     ALIEN("Alien", SubTypeSet.CreatureType),
     ALLY("Ally", SubTypeSet.CreatureType),
     ANDORIAN("Andorian", SubTypeSet.CreatureType),
+    ANDROID("Android", SubTypeSet.CreatureType),
     ANGEL("Angel", SubTypeSet.CreatureType),
     ANTELOPE("Antelope", SubTypeSet.CreatureType),
     ANZELLAN("Anzellan", SubTypeSet.CreatureType, true), // Star Wars
@@ -201,6 +204,7 @@ public enum SubType {
     EYE("Eye", SubTypeSet.CreatureType),
     // F
     FAERIE("Faerie", SubTypeSet.CreatureType),
+    FERENGI("Ferengi", SubTypeSet.CreatureType),
     FERRET("Ferret", SubTypeSet.CreatureType),
     FISH("Fish", SubTypeSet.CreatureType),
     FLAGBEARER("Flagbearer", SubTypeSet.CreatureType),
@@ -303,6 +307,7 @@ public enum SubType {
     MERFOLK("Merfolk", SubTypeSet.CreatureType),
     METATHRAN("Metathran", SubTypeSet.CreatureType),
     MINION("Minion", SubTypeSet.CreatureType),
+    MINDLESS_ONE("Mindless-One", SubTypeSet.CreatureType),
     MINOTAUR("Minotaur", SubTypeSet.CreatureType),
     MIRIALAN("Mirialan", SubTypeSet.CreatureType, true), // Star Wars
     MITE("Mite", SubTypeSet.CreatureType),
@@ -457,6 +462,7 @@ public enum SubType {
     TOY("Toy", SubTypeSet.CreatureType),
     TRANDOSHAN("Trandoshan", SubTypeSet.CreatureType, true), // Star Wars
     TREEFOLK("Treefolk", SubTypeSet.CreatureType),
+    TRIBBLE("Tribble", SubTypeSet.CreatureType),
     TRILOBITE("Trilobite", SubTypeSet.CreatureType),
     TRISKELAVITE("Triskelavite", SubTypeSet.CreatureType),
     TROLL("Troll", SubTypeSet.CreatureType),

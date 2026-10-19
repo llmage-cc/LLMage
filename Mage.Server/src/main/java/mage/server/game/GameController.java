@@ -1012,7 +1012,13 @@ public class GameController implements GameCallback {
                         logger.error("Can't send end game info to player, user " + gameSession.userId + ", game " + game.getId() + ": " + e, e);
                     }
                 }
-                // TODO: inform watchers about game end and who won
+                for (final GameSessionWatcher gameWatcher : getGameSessionWatchers()) {
+                    try {
+                        gameWatcher.endGameInfo(table);
+                    } catch (Throwable e) {
+                        logger.error("Can't send end game info to watcher, user " + gameWatcher.userId + ", game " + game.getId() + ": " + e, e);
+                    }
+                }
             }
         }
     }

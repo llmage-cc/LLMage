@@ -3076,7 +3076,7 @@ public class ScryfallImageSupportTokens {
             put("FRA/Heartwood", "https://api.scryfall.com/cards/tfra/11?format=image");
             put("FRA/Illusion", "https://api.scryfall.com/cards/tfra/4?format=image");
             put("FRA/Jace", "https://api.scryfall.com/cards/tfra/5?format=image");
-            // put("FRA/Leviathan", "https://api.scryfall.com/cards/tfra/6?format=image");
+            put("FRA/Leviathan", "https://api.scryfall.com/cards/tfra/6?format=image");
             put("FRA/Lotus", "https://api.scryfall.com/cards/tfra/12?format=image");
             put("FRA/Mowu", "https://api.scryfall.com/cards/tfra/10?format=image");
             put("FRA/Sculpture Treasure", "https://api.scryfall.com/cards/tfra/13?format=image");
@@ -3201,6 +3201,16 @@ public class ScryfallImageSupportTokens {
 
             // PL26
             put("PL26/Treasure", "https://api.scryfall.com/cards/pl26/2?format=image");
+
+            // MDD
+            put("MDD/Angel", "https://api.scryfall.com/cards/tmdd/3?format=image");
+            put("MDD/Elf Warrior", "https://api.scryfall.com/cards/tmdd/11?format=image");
+            put("MDD/Giant", "https://api.scryfall.com/cards/tmdd/12?format=image");
+            put("MDD/Mindless-One", "https://api.scryfall.com/cards/tmdd/9?format=image");
+            put("MDD/Spirit Sorcerer", "https://api.scryfall.com/cards/tmdd/8?format=image");
+            put("MDD/Zombie", "https://api.scryfall.com/cards/tmdd/10?format=image");
+
+            // MDC
 
             // generate supported sets
             supportedSets.clear();

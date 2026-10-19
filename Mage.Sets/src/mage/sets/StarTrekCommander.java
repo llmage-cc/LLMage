@@ -22,6 +22,7 @@ public final class StarTrekCommander extends ExpansionSet {
         cards.add(new SetCardInfo("Badgey, Malicious Glitch", 152, Rarity.UNCOMMON, mage.cards.b.BadgeyMaliciousGlitch.class));
         cards.add(new SetCardInfo("Benjamin Sisko, Besieged", 200, Rarity.MYTHIC, mage.cards.b.BenjaminSiskoBesieged.class));
         cards.add(new SetCardInfo("Bio-Asset Allocator", 196, Rarity.RARE, mage.cards.b.BioAssetAllocator.class));
+        cards.add(new SetCardInfo("Borg Queen, One Who Is Many", 131, Rarity.RARE, mage.cards.b.BorgQueenOneWhoIsMany.class));
         cards.add(new SetCardInfo("Captain Kirk, Boldly Going", 85, Rarity.MYTHIC, mage.cards.c.CaptainKirkBoldlyGoing.class));
         cards.add(new SetCardInfo("Ceti Eel", 153, Rarity.COMMON, mage.cards.c.CetiEel.class));
         cards.add(new SetCardInfo("Christine Chapel, Combat Medic", 300, Rarity.RARE, mage.cards.c.ChristineChapelCombatMedic.class, NON_FULL_USE_VARIOUS));
@@ -36,6 +37,7 @@ public final class StarTrekCommander extends ExpansionSet {
         cards.add(new SetCardInfo("Gorn Captain", 172, Rarity.COMMON, mage.cards.g.GornCaptain.class));
         cards.add(new SetCardInfo("Gumato", 173, Rarity.UNCOMMON, mage.cards.g.Gumato.class));
         cards.add(new SetCardInfo("Head of Security", 133, Rarity.COMMON, mage.cards.h.HeadOfSecurity.class));
+        cards.add(new SetCardInfo("Join the Collective", 20, Rarity.RARE, mage.cards.j.JoinTheCollective.class));
         cards.add(new SetCardInfo("Kirk, Enterprising Captain", 198, Rarity.MYTHIC, mage.cards.k.KirkEnterprisingCaptain.class));
         cards.add(new SetCardInfo("Klingon Strike Force", 199, Rarity.RARE, mage.cards.k.KlingonStrikeForce.class));
         cards.add(new SetCardInfo("Kolinahr Priest", 146, Rarity.COMMON, mage.cards.k.KolinahrPriest.class));

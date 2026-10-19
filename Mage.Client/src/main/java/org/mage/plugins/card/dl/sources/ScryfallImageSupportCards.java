@@ -592,6 +592,7 @@ public class ScryfallImageSupportCards {
             add("DSK"); // Duskmourn: House of Horror
             add("DSC"); // Duskmourn: House of Horror Commander
             add("FDN"); // Foundations
+            add("FDC"); // Foundations Commander
             add("J25"); // Foundations Jumpstart
             add("PIO"); // Pioneer Masters
             add("PW25"); // Wizards Play Network 2025
@@ -641,6 +642,8 @@ public class ScryfallImageSupportCards {
             add("TRC"); // Star Trek Commander
             add("SDS"); // Stardates
             add("PF27"); // MagicFest 2027
+            add("MDD"); // Marvel: Darkhold Destiny
+            add("MDC"); // Darkhold Destiny Commander
 
             // Custom sets using Scryfall images - must provide a direct link for each card in directDownloadLinks
             add("CALC"); // Custom Alchemized versions of existing cards

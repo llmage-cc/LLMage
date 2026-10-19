@@ -29,14 +29,22 @@ public class GameSessionWatcher {
     protected final Game game;
     protected boolean killed = false;
     protected final boolean isPlayer;
+    /** Match-wide: may opponents/spectators see LLM chat live? Passed in by the
+     *  GameController from the match's MatchOptions; replays always set it true. */
+    protected final boolean llmChatPublic;
 
     protected GameView lastGameView = null; // cached game view for non-game threads
 
     public GameSessionWatcher(UserManager userManager, UUID userId, Game game, boolean isPlayer) {
+        this(userManager, userId, game, isPlayer, false);
+    }
+
+    public GameSessionWatcher(UserManager userManager, UUID userId, Game game, boolean isPlayer, boolean llmChatPublic) {
         this.userManager = userManager;
         this.userId = userId;
         this.game = game;
         this.isPlayer = isPlayer;
+        this.llmChatPublic = llmChatPublic;
     }
 
     public boolean init() {
@@ -156,7 +164,11 @@ public class GameSessionWatcher {
 
         // short processing for the watcher
         GameView gameView = new GameView(game.getState(), game, null, userId);
+        // LLM chat visibility is a per-match flag: set it BEFORE the view is
+        // cached, so non-game threads returning the cached view see the same value.
+        gameView.setLlmChatPublic(llmChatPublic);
         processWatchedHands(game, userId, gameView);
+        processLLMDebugData(game, gameView);
 
         if (GameView.ENABLE_GAME_VIEW_CACHE) {
             this.lastGameView = gameView;
@@ -180,6 +192,43 @@ public class GameSessionWatcher {
 
     public boolean isPlayer() {
         return isPlayer;
+    }
+
+
+    /**
+     * Extract LLM debug data from any players that are LLM players.
+     *
+     * LLMPlayer lives in a plugin JAR loaded by a different classloader, so
+     * {@code instanceof mage.player.llm.LLMPlayer} always returns false at runtime
+     * (different Class object for the same name). Use a class-name string check
+     * plus reflection to invoke getLLMDebugData() without a compile-time dependency
+     * on the plugin JAR.
+     *
+     * Shared by GameSessionWatcher (spectator path) and GameSessionPlayer (player
+     * path) so both see the same LLM debug data. Fail Fast: reflection errors are
+     * logged at WARN — if the LLMPlayer method signature changes we want to know,
+     * not silently lose debug data.
+     */
+    protected static void processLLMDebugData(Game game, GameView gameView) {
+        java.util.List<mage.view.LLMConversationView> debugData = new java.util.ArrayList<>();
+        for (Player p : game.getPlayers().values()) {
+            if (p.getClass().getName().equals("mage.player.llm.LLMPlayer")) {
+                try {
+                    java.lang.reflect.Method getDebug = p.getClass().getMethod("getLLMDebugData");
+                    mage.view.LLMConversationView data = (mage.view.LLMConversationView) getDebug.invoke(p);
+                    if (data != null) {
+                        debugData.add(data);
+                    }
+                } catch (Throwable e) {
+                    // Fail Fast: log instead of swallowing. A signature change or
+                    // classloader shift would otherwise silently drop LLM debug data.
+                    logger.warn("LLMPlayer present but getLLMDebugData() failed: " + e.getMessage(), e);
+                }
+            }
+        }
+        if (!debugData.isEmpty()) {
+            gameView.setLLMDebug(debugData);
+        }
     }
 
 }

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>CardThumb placeholder — visual check</title>
+  <!-- The real game stylesheet, so what renders here is exactly what the board uses. -->
+  <link rel="stylesheet" href="/game-renderer.css">
+  <style>
+    body { background: #12121a; padding: 16px; font-family: system-ui, sans-serif; }
+    h3 { color: #e0e0f0; font-size: 0.9rem; margin: 16px 0 6px; }
+    .cards-grid { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+    /* Mirror the sizing the real board sets on :root (App.tsx applies these). */
+    :root { --card-width: 88px; --card-height: 123px; --card-width-sm: 62px; --card-height-sm: 87px; }
+  </style>
+</head>
+<body>
+  <h3>1. Token with NO art (the reported bug — used to collapse to a line)</h3>
+  <div class="cards-grid">
+    <div class="card-thumb" data-card-name="Soldier Token">
+      <div class="card-thumb-fallback card-art-fallback">
+        <div class="card-art-fallback-name">Soldier Token</div>
+        <div class="card-art-fallback-text">1/1 white Soldier creature token</div>
+      </div>
+      <span class="card-thumb-pt">1/1</span>
+    </div>
+    <div class="card-thumb" data-card-name="Treasure">
+      <div class="card-thumb-fallback card-art-fallback">
+        <div class="card-art-fallback-name">Treasure</div>
+        <div class="card-art-fallback-text">{T}, Sacrifice this token: Add one mana of any color.</div>
+      </div>
+    </div>
+    <div class="card-thumb" data-card-name="Ajani's Pridemate">
+      <div class="card-thumb-fallback card-art-fallback">
+        <div class="card-art-fallback-name">Ajani's Pridemate</div>
+        <div class="card-art-fallback-text">2/2 white Cat Soldier creature token</div>
+      </div>
+      <span class="card-thumb-pt">2/2</span>
+    </div>
+  </div>
+
+  <h3>2. Bare placeholder (no rules text) — card back + centred name</h3>
+  <div class="cards-grid">
+    <div class="card-thumb" data-card-name="Unknown Thing">
+      <div class="card-thumb-fallback card-art-fallback is-bare">
+        <div class="card-art-fallback-name">Unknown Thing</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>3. Mid-probe state (spinner while printings are tried)</h3>
+  <div class="cards-grid">
+    <div class="card-thumb" data-card-name="Goblin Token">
+      <div class="card-thumb-fallback card-art-fallback card-art-resolving">
+        <div class="card-art-fallback-name">Goblin Token</div>
+        <div class="card-art-fallback-text">1/1 red Goblin creature token</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>4. A real card that loaded (regression check — art path must be untouched)</h3>
+  <div class="cards-grid">
+    <div class="card-thumb" data-card-name="Lightning Bolt">
+      <img src="https://api.scryfall.com/cards/named?exact=Lightning%20Bolt&format=image&version=small" alt="Lightning Bolt" draggable="false">
+    </div>
+    <div class="card-thumb" data-card-name="Mountain">
+      <img src="https://api.scryfall.com/cards/named?exact=Mountain&format=image&version=small" alt="Mountain" draggable="false">
+    </div>
+  </div>
+
+  <h3>5. Custom-art marker (✎) on a token using a chosen printing</h3>
+  <div class="cards-grid">
+    <div class="card-thumb" data-card-name="Soldier Token">
+      <div class="card-thumb-fallback card-art-fallback">
+        <div class="card-art-fallback-name">Soldier Token</div>
+        <div class="card-art-fallback-text">custom art picked</div>
+      </div>
+      <span class="card-overlay-custom-art" title="Custom token art">✎</span>
+      <span class="card-thumb-pt">1/1</span>
+    </div>
+  </div>
+
+  <h3>6. Tapped token placeholder (rotation must still work with aspect-ratio)</h3>
+  <div class="cards-grid">
+    <div class="card-thumb tapped" data-card-name="Soldier Token">
+      <div class="card-thumb-fallback card-art-fallback">
+        <div class="card-art-fallback-name">Soldier Token</div>
+        <div class="card-art-fallback-text">1/1 white Soldier</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

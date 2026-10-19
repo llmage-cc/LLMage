@@ -15,6 +15,7 @@ import mage.constants.RangeOfInfluence;
 import mage.constants.SkillLevel;
 import mage.game.match.MatchOptions;
 import mage.players.PlayerType;
+import mage.players.LLMPlayerConfig;
 import mage.view.GameTypeView;
 import mage.view.TableView;
 import org.apache.log4j.Logger;
@@ -62,6 +63,7 @@ public class NewTableDialog extends MageDialog {
         this.customOptions = new CustomOptionsDialog(CustomOptionsDialog.SaveLoadKeys.TABLE, btnCustomOptions);
         MageFrame.getDesktop().add(customOptions, customOptions.isModal() ? JLayeredPane.MODAL_LAYER : JLayeredPane.PALETTE_LAYER);
         player1Panel.showLevel(false);
+        player1Panel.showTypeSelector(true); // allow player 1 to be AI too
         this.spnNumWins.setModel(new SpinnerNumberModel(1, 1, 5, 1));
         this.spnQuitRatio.setModel(new SpinnerNumberModel(100, 0, 100, 5));
         this.spnMinimumRating.setModel(new SpinnerNumberModel(0, 0, 3000, 10));
@@ -513,8 +515,43 @@ public class NewTableDialog extends MageDialog {
             JOptionPane.showMessageDialog(MageFrame.getDesktop(), "Error creating table.", "Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
+        PlayerType player1Type = player1Panel.getPlayerType();
+        boolean player1IsAi = (player1Type != PlayerType.HUMAN);
+
+        // Fail Fast: validate that AI seats have a deck selected before sending to the server.
+        // An empty deck file causes a cryptic server-side error; surface it clearly here.
+        if (player1IsAi) {
+            String p1Deck = this.player1Panel.getDeckFile();
+            if (p1Deck == null || p1Deck.trim().isEmpty()) {
+                JOptionPane.showMessageDialog(MageFrame.getDesktop(),
+                        "Please select a deck for AI player 1 (" + this.player1Panel.getPlayerName() + ").",
+                        "Missing Deck", JOptionPane.WARNING_MESSAGE);
+                SessionHandler.removeTable(roomId, table.getTableId());
+                table = null;
+                return;
+            }
+        }
+        int aiSeatNum = 1;
+        if (player1IsAi) {
+            aiSeatNum++;
+        }
+        for (TablePlayerPanel player : players) {
+            if (player.getPlayerType() != PlayerType.HUMAN) {
+                String deck = player.getPlayerDeck();
+                if (deck == null || deck.trim().isEmpty()) {
+                    JOptionPane.showMessageDialog(MageFrame.getDesktop(),
+                            "Please select a deck for AI player " + aiSeatNum + ".",
+                            "Missing Deck", JOptionPane.WARNING_MESSAGE);
+                    SessionHandler.removeTable(roomId, table.getTableId());
+                    table = null;
+                    return;
+                }
+            }
+            aiSeatNum++;
+        }
+
         try {
-            // join AI
+            // join AI players (seats 2+)
             for (TablePlayerPanel player : players) {
                 if (player.getPlayerType() != PlayerType.HUMAN) {
                     if (!player.joinTable(roomId, table.getTableId())) {
@@ -526,17 +563,38 @@ public class NewTableDialog extends MageDialog {
                 }
             }
 
-            // join itself
-            if (SessionHandler.joinTable(
-                    roomId,
-                    table.getTableId(),
-                    this.player1Panel.getPlayerName(),
-                    PlayerType.HUMAN, 1,
-                    DeckImporter.importDeckFromFile(this.player1Panel.getDeckFile(), true),
-                    this.txtPassword.getText())) {
-                // all fine, can close create dialog (join dialog will be opened after feedback from server)
+            if (player1IsAi) {
+                // Join player 1 as an AI bot
+                if (!SessionHandler.joinTable(
+                        roomId,
+                        table.getTableId(),
+                        this.player1Panel.getPlayerName(),
+                        player1Type,
+                        this.player1Panel.getSkillLevel(),
+                        DeckImporter.importDeckFromFile(this.player1Panel.getDeckFile(), true),
+                        "")) {
+                    SessionHandler.removeTable(roomId, table.getTableId());
+                    table = null;
+                    return;
+                }
+                // Start the match immediately and watch (no human at the table)
+                SessionHandler.startMatch(roomId, table.getTableId());
+                SessionHandler.watchTable(roomId, table.getTableId());
                 doClose();
                 return;
+            } else {
+                // join as human (the user themselves)
+                if (SessionHandler.joinTable(
+                        roomId,
+                        table.getTableId(),
+                        this.player1Panel.getPlayerName(),
+                        PlayerType.HUMAN, 1,
+                        DeckImporter.importDeckFromFile(this.player1Panel.getDeckFile(), true),
+                        this.txtPassword.getText())) {
+                    // all fine, can close create dialog (join dialog will be opened after feedback from server)
+                    doClose();
+                    return;
+                }
             }
         } catch (ClassNotFoundException | IOException ex) {
             handleError(ex);
@@ -595,7 +653,7 @@ public class NewTableDialog extends MageDialog {
         // current settings
         GameTypeView gameType = (GameTypeView) cbGameType.getSelectedItem();
         MatchOptions options = new MatchOptions(this.txtName.getText(), gameType.getName(), false);
-        options.getPlayerTypes().add(PlayerType.HUMAN);
+        options.getPlayerTypes().add(player1Panel.getPlayerType()); // player 1 — may be HUMAN or AI
         for (TablePlayerPanel player : players) {
             options.getPlayerTypes().add(player.getPlayerType());
         }
@@ -621,6 +679,22 @@ public class NewTableDialog extends MageDialog {
         }
 
         customOptions.writeMatchOptionsTo(options);
+
+        // Collect per-player LLM config overrides from all LLM seats.
+        // Emit one entry per LLM SEAT in seat order, using null for seats
+        // without a user-configured override. This keeps the list positionally
+        // aligned with LLM seats so the server (TableController.wireLlmConfigs)
+        // maps configs to the correct seats. Null = use server defaults.
+        List<LLMPlayerConfig> llmConfigs = new ArrayList<>();
+        if (player1Panel.getPlayerType() == PlayerType.COMPUTER_LLM) {
+            llmConfigs.add(player1Panel.getLlmPlayerConfig()); // may be null
+        }
+        for (TablePlayerPanel player : players) {
+            if (player.getPlayerType() == PlayerType.COMPUTER_LLM) {
+                llmConfigs.add(player.getLlmPlayerConfig()); // may be null
+            }
+        }
+        options.setLlmPlayerConfigs(llmConfigs);
 
         return options;
     }

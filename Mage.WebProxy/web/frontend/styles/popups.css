@@ -1,0 +1,1131 @@
+/* popups.css — Floating draggable/resizable popup windows */
+
+/* ── Popup overlay ── */
+.popup-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 500;
+}
+
+/* ── Floating window (draggable, resizable) ──
+   Default sizes are set by utils/popupSize.ts (520x420, readable on 1920x1080).
+   The min/max here are the CSS backstop for the same contract; resize clamps
+   live in hooks/useFloatWindow.ts so the inline style can never exceed them. */
+.float-window {
+    position: fixed;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    z-index: 400;
+    display: flex;
+    flex-direction: column;
+    /* Minimums are set per-popup from POPUP_MIN_W/H (utils/popupSize.ts) on the
+       element, not here: CardSelectPopup shares this class and keeps its own
+       300x200 floor. */
+    min-width: 300px;
+    min-height: 200px;
+    /* Zoom-compensated viewport caps (see base.css --vw/--vh): raw 100vw renders
+       at 75% of the screen under the html zoom. POPUP_EDGE (8px) on each side is
+       the same budget the JS clamp in hooks/useFloatWindow.ts uses, so the CSS
+       cap never fights a JS-clamped size (inline width == rendered width). */
+    max-width: calc(var(--vw) - 16px);
+    max-height: calc(var(--vh) - 16px);
+}
+
+.float-window-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-default);
+    border-radius: 10px 10px 0 0;
+    cursor: grab;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.float-window-header:active {
+    cursor: grabbing;
+}
+
+.float-window-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--accent-primary);
+}
+
+.float-window-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+}
+
+.float-window-close:hover {
+    color: var(--color-danger);
+    background: rgba(231, 76, 60, 0.1);
+}
+
+.float-window-body {
+    flex: 1;
+    overflow: auto;
+    padding: 0.75rem;
+    min-height: 0;
+}
+
+/* Resize handle (bottom-right corner) — the grip is deliberately larger than
+   the old 16x16 invisible corner so it is discoverable::before widens the
+   hit area without painting over the card grid. */
+.float-window-resize {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 22px;
+    height: 22px;
+    cursor: nwse-resize;
+    opacity: 0.7;
+}
+
+.float-window-resize:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+/* Diagonal grip lines (two parallel strokes, like a window resize grip). */
+.float-window-resize::after {
+    content: '';
+    position: absolute;
+    bottom: 3px;
+    right: 3px;
+    width: 12px;
+    height: 12px;
+    border-right: 2px solid var(--text-muted);
+    border-bottom: 2px solid var(--text-muted);
+}
+
+.float-window-resize::before {
+    content: '';
+    position: absolute;
+    bottom: 7px;
+    right: 7px;
+    width: 7px;
+    height: 7px;
+    border-right: 2px solid var(--text-muted);
+    border-bottom: 2px solid var(--text-muted);
+}
+
+/* ── Popup content ── */
+.popup-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    justify-content: center;
+}
+
+.popup-cards-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: center;
+    align-content: flex-start;
+}
+
+.popup-card {
+    width: 140px;
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: pointer;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.popup-card:hover {
+    transform: translateY(-3px);
+    z-index: 10;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.popup-card img {
+    width: 100%;
+    display: block;
+    border-radius: 6px 6px 0 0;
+}
+
+.popup-card-name {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    padding: 0.25rem 0.3rem 0;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.popup-card-type {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    padding: 0 0.3rem 0.3rem;
+    text-align: center;
+}
+
+/* Trigger-order candidates:
+   the tile caption is "Source card — trigger text", i.e. a full sentence, not a card
+   name. A one-line ellipsis would hide the very text the player must compare, so
+   these tiles widen and the caption wraps. */
+.popup-card-ability {
+    width: 220px;
+}
+
+.popup-card-ability .popup-card-name {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.25;
+    font-weight: 500;
+}
+
+.popup-card-thumb {
+    width: 120px;
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 0.15s;
+}
+
+.popup-card-thumb:hover {
+    transform: translateY(-3px);
+    z-index: 10;
+}
+
+.popup-card-thumb img {
+    width: 100%;
+    border-radius: 6px;
+}
+
+.popup-card-thumb.valid-target {
+    box-shadow: 0 0 6px 2px rgba(39, 174, 96, 0.5);
+    border: 2px solid #27ae60;
+}
+
+.popup-card-thumb.invalid-target {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.popup-card-thumb.combat-declared {
+    box-shadow: 0 0 6px 2px rgba(231, 76, 60, 0.5);
+    border: 2px solid #e74c3c;
+}
+
+/* Off-hand play affordance:
+   a card in a zone window (graveyard/exile) whose current select prompt offers a
+   play choice — flashback, play-from-exile. Same playable ring the board tiles
+   get from .card-playable (and it honours the --hl-playable colour preference),
+   but for the popup tile's own shape. */
+.popup-card.popup-card-playable {
+    box-shadow: 0 0 8px 2px rgba(var(--hl-playable, 39, 174, 96), 0.5);
+    border-color: rgb(var(--hl-playable, 39, 174, 96));
+}
+
+/* ── Game setup overlay ── */
+/* Widescreen: the dialog grows with the viewport (never past 95% width) so the
+   settings and player panes can sit SIDE BY SIDE instead of one cramped,
+   scrolling strip down the middle of the screen. On narrow windows the panes
+   stack back to one column via flex-basis (see .setup-col below). */
+.game-setup-content {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 12px;
+    padding: 1.5rem;
+    max-width: calc(var(--vw) * 0.95);
+    width: 100%;
+    max-height: calc(var(--vh) * 0.9);
+    overflow-y: auto;
+}
+
+/* Scrollbar affordance: themed globally in base.css (2026-09-20) — the
+   custom ::-webkit-scrollbar rules there give this dialog the same
+   rounded on-theme scrollbar as the rest of the UI. Local override kept
+   only for the track hint colour, matching the dialog surface. */
+.game-setup-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.setup-field-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.setup-field label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    display: block;
+    margin-bottom: 0.25rem;
+}
+
+.setup-field input,
+.setup-field select {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    color: var(--text-primary);
+    padding: 0.4rem;
+    font-size: 0.85rem;
+}
+
+.setup-field input[type="checkbox"] {
+    width: auto;
+    accent-color: var(--accent-primary);
+}
+
+.setup-field input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.setup-advanced-options {
+    border-top: 1px solid var(--border-default);
+    border-bottom: 1px solid var(--border-default);
+}
+
+/* ── Setup dialog two-pane layout ── */
+/* Side-by-side panes (Settings | Players) on wide screens; each pane collapses
+   to a single column once it can't get its preferred width. Using flex-basis
+   rather than media queries keeps this correct under html zoom compensation. */
+.setup-columns {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 1.25rem;
+}
+
+.setup-col {
+    flex: 1 1 340px;
+    min-width: 0;
+}
+
+.setup-col-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    margin: 0 0 0.5rem 0;
+}
+
+/* ── Player slots in setup ── */
+.player-slot {
+    border: 1px solid var(--border-default);
+    border-radius: 8px;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    background: var(--bg-elevated);
+}
+
+.player-slot-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.player-slot-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.player-slot select {
+    font-size: 0.8rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    color: var(--text-primary);
+    padding: 0.2rem;
+    margin-left: 0.5rem;
+}
+
+.player-slot textarea {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-family: monospace;
+    font-size: 0.8rem;
+    padding: 0.4rem;
+}
+
+.player-slot input[type="file"] {
+    font-size: 0.75rem;
+}
+
+/* ── LLM config section ── */
+.llm-config-section {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    border: 1px dashed var(--border-default);
+    border-radius: 4px;
+}
+
+/* Tab bar — the seat config's sections, mirroring the desktop client's
+   LLMConfigDialog JTabbedPane. Same visual language as .right-tabs /
+   .lobby-chat-tabs so the dark UI stays consistent. */
+.llm-config-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-default);
+    margin: -0.5rem -0.5rem 0.4rem -0.5rem;
+    border-radius: 4px 4px 0 0;
+}
+
+.llm-config-tab {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.llm-config-tab:hover {
+    color: var(--text-primary);
+}
+
+.llm-config-tab[aria-selected="true"] {
+    color: var(--accent-primary);
+    background: var(--bg-surface);
+    border-bottom-color: var(--accent-primary);
+}
+
+.llm-config-tab:focus-visible {
+    outline: 1px solid var(--accent-primary);
+    outline-offset: -1px;
+}
+
+/* One panel at a time. `hidden` keeps the inactive panels mounted (their
+   component-local state — the Provider dropdown's Other… mode and draft URL —
+   survives a tab switch); display:none is declared explicitly so a future panel
+   style cannot accidentally reveal a hidden one. */
+.llm-config-tabpanel[hidden] {
+    display: none;
+}
+
+.llm-config-section-title {
+    font-size: 0.7rem;
+    color: var(--accent-primary);
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.llm-config-field {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+
+.llm-config-field label {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    width: 110px;
+    flex-shrink: 0;
+}
+
+.llm-config-field input,
+.llm-config-field select {
+    flex: 1;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    color: var(--text-primary);
+    padding: 0.25rem;
+    font-size: 0.75rem;
+}
+
+.llm-config-field input[type="checkbox"] {
+    flex: 0;
+}
+
+/* ── Action prompt ── */
+.action-prompt {
+    flex-shrink: 0;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 8px;
+    padding: calc(0.5rem * var(--ui-scale, 1));
+    margin: calc(0.5rem * var(--ui-scale, 1));
+}
+
+/* Phase-based feedback tint. Java reference: HelperPanel colours its
+   feedback panel by the phase while the player's action is awaited —
+   ACTIVE_FEEDBACK_BACKGROUND_COLOR_MAIN (blue), _BATTLE (red), _OTHER (green).
+   The class comes from utils/phaseTint.ts (gameState.phase: M1/M2 = main,
+   C1 = combat, anything else/unknown = other). Tint is a left border plus a
+   faint mix into the surface colour, so text contrast is unchanged in both
+   themes — the colour only cues WHERE in the turn you are. */
+.action-prompt--main {
+    --phase-tint: var(--format-modern, #42a5f5);
+    border-left: 3px solid var(--phase-tint);
+    background: color-mix(in srgb, var(--phase-tint) 8%, var(--bg-surface));
+}
+
+.action-prompt--combat {
+    --phase-tint: var(--color-danger, #ef4444);
+    border-left: 3px solid var(--phase-tint);
+    background: color-mix(in srgb, var(--phase-tint) 8%, var(--bg-surface));
+}
+
+.action-prompt--other {
+    --phase-tint: var(--accent-success, #4caf50);
+    border-left: 3px solid var(--phase-tint);
+    background: color-mix(in srgb, var(--phase-tint) 6%, var(--bg-surface));
+}
+
+.prompt-message {
+    color: var(--text-primary);
+    font-weight: 600;
+    margin-bottom: calc(0.5rem * var(--ui-scale, 1));
+    font-size: 0.85rem;
+}
+
+.prompt-choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-bottom: 0.3rem;
+}
+
+/* ── Remembered yes/no answers ──────────────────────────────────────────────
+   The ▾ affordance beside each Yes/No button opens the desktop client's
+   auto-answer submenu (HelperPanel.java:493-521) ported into the prompt body.
+   `position: relative` on the per-answer wrapper anchors the menu, which reuses
+   the shared `.context-menu-item` item chrome. */
+.prompt-choices-boolean .prompt-boolean-choice {
+    position: relative;
+    display: inline-flex;
+    align-items: stretch;
+}
+
+.prompt-choices-boolean .btn-always {
+    margin-left: -0.3rem;
+    padding: 0 calc(0.45rem * var(--ui-scale, 1));
+    background: var(--bg-elevated, #232329);
+    border: 1px solid var(--border-default, #2e2e38);
+    border-radius: 6px;
+    color: var(--text-secondary, #b8b8c0);
+    cursor: pointer;
+    font-size: 0.8rem;
+}
+
+.prompt-choices-boolean .btn-always:hover {
+    background: var(--bg-active, #243056);
+    color: var(--text-primary);
+}
+
+.prompt-always-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 710;
+    min-width: 260px;
+    margin-top: 2px;
+    background: var(--bg-elevated, #232329);
+    border: 1px solid var(--border-default, #2e2e38);
+    border-radius: 6px;
+    padding: 0.25rem 0;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+.prompt-always-note {
+    flex-basis: 100%;
+    font-size: 0.75rem;
+    color: var(--text-secondary, #b8b8c0);
+}
+
+.prompt-targets {
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+/* ── DecisionPopup — floating element-specific decision prompt ──
+   Visual style moved here from DecisionPopup.tsx inline styles so the popup
+   matches the other floating surfaces (zone/revealed windows). Positioning
+   (fixed left/top + clamping) stays in the component. */
+.decision-popup {
+    position: fixed;
+    z-index: 700;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    padding: calc(0.5rem * var(--ui-scale, 1));
+    /* Chrome scales with --ui-scale (button paddings inside do too) — a fixed
+       300px would crush the buttons at 400–600% on 4K. DecisionPopup.tsx uses
+       the same 300 * uiScale figure for its viewport clamp. */
+    max-width: calc(300px * var(--ui-scale, 1));
+    /* The popup carries interactive buttons — clicks must land on it. */
+    pointer-events: auto;
+}
+
+/* ── Buttons ── */
+.btn {
+    padding: calc(0.4rem * var(--ui-scale, 1)) calc(1rem * var(--ui-scale, 1));
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.btn-primary {
+    background: var(--accent-primary);
+    color: white;
+}
+
+.btn-primary:hover {
+    filter: brightness(1.1);
+}
+
+.btn-secondary {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
+}
+
+.btn-danger {
+    background: transparent;
+    color: var(--color-danger);
+    border: 1px solid var(--color-danger);
+}
+
+.btn-sm {
+    font-size: 0.75rem;
+    padding: calc(0.25rem * var(--ui-scale, 1)) calc(0.5rem * var(--ui-scale, 1));
+}
+
+.btn-prompt {
+    padding: 0.3rem 0.6rem;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.btn-prompt:hover {
+    border-color: var(--accent-primary);
+}
+
+/* ── Skip buttons ── */
+.skip-btn {
+    font-size: 0.75rem;
+    padding: calc(0.3rem * var(--ui-scale, 1)) calc(0.6rem * var(--ui-scale, 1));
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.skip-btn:hover {
+    border-color: var(--accent-primary);
+}
+
+.skip-btn.skip-active {
+    background: var(--color-danger);
+    color: white;
+    border-color: var(--color-danger);
+}
+
+/* ── Card preview tooltip ── */
+/* Positioning handled by #card-preview rules in game-renderer.css;
+   the React component always renders with display: grid via inline. */
+.card-preview .card-meta {
+    font-size: 0.75rem;
+}
+
+.card-preview .card-name {
+    font-weight: 700;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.card-preview .card-cost {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+}
+
+.card-preview .card-type {
+    color: var(--text-secondary);
+    font-style: italic;
+    margin-top: 0.2rem;
+}
+
+.card-preview .card-rules {
+    font-size: 0.7rem;
+    white-space: pre-wrap;
+    margin-top: 0.3rem;
+    color: var(--text-primary);
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.card-preview .card-stats {
+    font-weight: 700;
+    margin-top: 0.2rem;
+}
+
+/* ── Game end modal ── */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 600;
+}
+
+.modal-content {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 12px;
+    padding: 2rem;
+    text-align: center;
+    /* rem, not px: the dialog text is rem-sized (scales with --font-scale),
+       so a fixed 400px overflowed at raised font scales on 4K. */
+    max-width: 25rem;
+}
+
+.modal-title {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--accent-primary);
+    margin-bottom: 1rem;
+}
+
+.modal-result {
+    color: var(--text-primary);
+    margin-bottom: 1.5rem;
+    font-size: 1rem;
+}
+
+/* ── Error toast ── */
+.error-toast {
+    position: fixed;
+    top: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--color-danger);
+    color: white;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    z-index: 2000;
+    font-size: 0.9rem;
+    max-width: 600px;
+    text-align: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+/* ── Connection status banner (reconnecting / resyncing) ── */
+.conn-status-banner {
+    position: fixed;
+    top: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--accent-primary, #4a90d9);
+    color: white;
+    padding: 0.5rem 1.25rem;
+    border-radius: 8px;
+    z-index: 1999;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.conn-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: white;
+    animation: conn-pulse 1s ease-in-out infinite;
+}
+@keyframes conn-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+/* ── Priority alert screen flash (ScreenFlash.tsx) ──
+   One-shot edge-glow pulse: quick ramp to full, fade out. The component sets
+   the gradient + alpha inline (intensity-driven); the animation only moves
+   opacity. animation-fill-mode forwards leaves it at opacity 0 so the div can
+   be removed by the timer without a visible pop. */
+@keyframes screen-flash-pulse {
+    0%   { opacity: 0; }
+    25%  { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+/* ── Table list ── */
+.table-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 8px;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    cursor: pointer;
+}
+
+.table-card:hover {
+    border-color: var(--accent-primary);
+}
+
+.table-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* ── Combat selectable / playable highlights ── */
+.card-playable {
+    box-shadow: 0 0 8px 2px rgba(var(--hl-playable, 39, 174, 96), 0.5) !important;
+    border-color: rgb(var(--hl-playable, 39, 174, 96)) !important;
+    cursor: pointer !important;
+}
+
+.combat-selectable {
+    box-shadow: 0 0 8px 2px rgba(var(--hl-combat, 255, 215, 0), 0.5) !important;
+    border-color: rgb(var(--hl-combat, 255, 215, 0)) !important;
+}
+
+.combat-declared {
+    /* Orange ring — declared this combat, click again to UNdeclare. Deliberately
+       NOT the red .card-target glow (targets are enemies); declared MINE glow
+       warm-amber-red so the two never read as the same state. */
+    box-shadow: 0 0 9px 3px rgba(240, 98, 21, 0.65) !important;
+    border-color: #f06215 !important;
+    cursor: pointer !important;
+}
+
+.mana-tappable {
+    box-shadow: 0 0 8px 2px rgba(var(--hl-mana, 0, 180, 255), 0.5) !important;
+    border-color: rgb(var(--hl-mana, 0, 180, 255)) !important;
+    cursor: pointer !important;
+}
+
+.card-mana-tappable {
+    box-shadow: 0 0 8px 2px rgba(var(--hl-mana, 0, 180, 255), 0.5) !important;
+    border-color: rgb(var(--hl-mana, 0, 180, 255)) !important;
+    cursor: pointer !important;
+}
+
+.card-target {
+    box-shadow: 0 0 8px 2px rgba(var(--hl-target, 255, 50, 50), 0.5) !important;
+    border-color: rgb(var(--hl-target, 255, 50, 50)) !important;
+    cursor: pointer !important;
+}
+
+.stack-target-highlight {
+    box-shadow: 0 0 10px 3px rgba(var(--hl-target, 255, 50, 50), 0.7) !important;
+    border-color: rgb(var(--hl-target, 255, 50, 50)) !important;
+}
+
+/* ── Chat lines ── */
+.chat-line {
+    padding: 0.2rem 0.4rem;
+    font-size: 0.8rem;
+    margin-bottom: 0.2rem;
+}
+
+.action-line {
+    padding: 0.15rem 0.3rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    line-height: 1.3;
+}
+
+/* ── Clickable zone titles ── */
+.clickable-zone-title {
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.clickable-zone-title:hover {
+    color: var(--accent-primary);
+}
+
+/* ── Player colors ── */
+.action-blue    { color: #4a90d9; font-weight: 600; }
+.action-green   { color: #27ae60; font-weight: 600; }
+.action-red     { color: #e74c3c; font-weight: 600; }
+.action-orange  { color: #e67e22; font-weight: 600; }
+
+/* ── Amount / multi-amount prompts ── */
+.prompt-amount {
+    margin-bottom: 0.4rem;
+}
+.prompt-amount-row {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    margin-bottom: 0.25rem;
+}
+.prompt-amount-input {
+    width: 80px;
+    padding: 0.3rem 0.5rem;
+    background: var(--bg-default);
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+.prompt-amount-hint {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 0.15rem;
+}
+.prompt-multi-amount {
+    margin-bottom: 0.4rem;
+}
+.prompt-multi-label {
+    font-size: 0.8rem;
+    color: var(--text-primary);
+    min-width: 120px;
+}
+
+/* ── Choose-pile prompts (Fact or Fiction) ── */
+.prompt-piles {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.4rem;
+}
+.prompt-pile {
+    flex: 1;
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    padding: 0.4rem;
+    background: var(--bg-default);
+    text-align: center;
+}
+.prompt-pile-label {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.3rem;
+    font-size: 0.85rem;
+}
+.prompt-pile-cards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem;
+    margin-bottom: 0.3rem;
+    max-height: 160px;
+    overflow-y: auto;
+    justify-content: center;
+}
+.popup-card-mini {
+    width: 70px;
+    text-align: center;
+}
+.popup-card-mini img {
+    width: 100%;
+    border-radius: 4px;
+}
+.popup-card-mini .popup-card-name {
+    font-size: 0.65rem;
+    color: var(--text-secondary);
+    margin-top: 0.1rem;
+    line-height: 1.1;
+}
+
+/* ── Play-mana prompt ── */
+.prompt-mana {
+    margin-bottom: 0.4rem;
+}
+.prompt-mana-hint {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.3rem;
+}
+.prompt-mana-buttons {
+    display: flex;
+    gap: 0.4rem;
+}
+
+/* All-attack convenience button (injected into select choices) */
+.btn-prompt-all-attack {
+    background: var(--accent-primary);
+    color: #fff;
+    font-weight: 600;
+}
+
+/* Trigger-order choice buttons: each button names the source card and shows
+   the trigger text beneath, so two simultaneous triggers are distinguishable. */
+.prompt-ability-choice {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    align-items: flex-start;
+}
+
+.prompt-ability-choice .prompt-ability-source {
+    font-weight: 600;
+}
+
+.prompt-ability-choice .prompt-ability-rule {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* ── Disabled (illegal) target cards in revealed popup ── */
+.popup-card-disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: grayscale(0.6);
+}
+.popup-card-validity {
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin-top: 0.15rem;
+}
+.popup-card-disabled .popup-card-validity {
+    color: var(--danger, #e74c3c);
+}
+
+/* ── Action-choice modal body ── */
+.modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+}
+.action-choice-btn {
+    width: 100%;
+    text-align: left;
+}
+
+/* ── Centered decision window ──
+   Owned by react/src/components/DecisionPopup.tsx. EVERY action prompt renders
+   here, mid-screen; the right-rail ActionPromptBar keeps its message line and
+   the meta controls (Pass Priority, skips, Hold/Rollback, Concede).
+   Deliberately NOT a modal overlay: the player must keep clicking cards and
+   lands on the board (cast / target / tap-mana all work while it is up), and a
+   backdrop would also hide the board the prompt is asking about. */
+.decision-popup {
+    position: fixed;
+    background: var(--bg-surface);
+    border: 2px solid var(--accent-primary);
+    border-radius: 10px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 24px rgba(0, 0, 0, 0.55);
+    padding: 0;
+    min-width: 240px;
+    max-width: min(480px, calc(var(--vw) - 32px));
+    max-height: calc(var(--vh) - 32px);
+    display: flex;
+    flex-direction: column;
+}
+
+.decision-popup.is-compact {
+    min-width: 0;
+    max-width: min(300px, calc(var(--vw) - 32px));
+}
+
+.decision-popup[data-dragging='true'] {
+    cursor: grabbing;
+    user-select: none;
+}
+
+.decision-popup-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.4rem 0.75rem;
+    background: var(--bg-elevated);
+    border-bottom: 2px solid var(--accent-primary);
+    border-radius: 8px 8px 0 0;
+    cursor: grab;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.decision-popup-header:active {
+    cursor: grabbing;
+}
+
+.decision-popup-kind {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--accent-primary);
+    white-space: nowrap;
+}
+
+.decision-popup-status {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.decision-popup-body {
+    padding: 0.6rem 0.75rem 0.7rem;
+    overflow-y: auto;
+    min-height: 0;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.decision-popup-msg {
+    font-weight: 600;
+    font-size: 0.95rem;
+    margin-bottom: 0.5rem;
+}
+
+.decision-popup-hint {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.decision-popup-footer {
+    border-top: 1px solid var(--border-default);
+    padding: 0.3rem 0.75rem;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}

@@ -72,8 +72,13 @@ class AdNauseamEffect extends OneShotEffect {
             }
             controller.revealCards(sourceCard.getIdName() + " put into hand", new CardsImpl(card), game);
 
-            // AI workaround to stop infinite choose (only one card allows)
-            if (controller.isComputer()) {
+            // AI workaround to stop infinite choose: a plain AI's chooseUse is
+            // an unconditional yes, so it would loop on 0-mana cards forever.
+            // An LLM-controlled seat answers the prompt for real (it can
+            // decline), so it must be allowed to chain until it does — this is
+            // the spell's whole point (Storm's primary win condition). Breaking
+            // for the LLM here truncated Ad Nauseam to a single card.
+            if (controller.isComputer() && !controller.isLlmControlled()) {
                 break;
             }
         }

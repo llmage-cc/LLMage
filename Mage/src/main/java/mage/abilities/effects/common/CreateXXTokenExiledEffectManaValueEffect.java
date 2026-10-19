@@ -14,16 +14,14 @@ import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
-
 /**
  * @author TheElk801
  */
 public class CreateXXTokenExiledEffectManaValueEffect extends OneShotEffect {
 
-    private final Function<Integer, Token> tokenMaker;
+    private final SerializableTokenMaker tokenMaker;
 
-    public CreateXXTokenExiledEffectManaValueEffect(Function<Integer, Token> tokenMaker, String description) {
+    public CreateXXTokenExiledEffectManaValueEffect(SerializableTokenMaker tokenMaker, String description) {
         super(Outcome.Benefit);
         this.tokenMaker = tokenMaker;
         staticText = "the exiled card's owner creates an X/X " + description +

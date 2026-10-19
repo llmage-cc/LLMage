@@ -93,7 +93,8 @@ class ScholarshipSponsorEffect extends OneShotEffect {
             if (player == null || diff < 1) {
                 continue;
             }
-            TargetCardInLibrary target = new TargetCardInLibrary(diff, StaticFilters.FILTER_CARD_BASIC_LAND);
+            // "less than or equal to the difference" — a partial find (0..diff) is allowed
+            TargetCardInLibrary target = new TargetCardInLibrary(0, diff, StaticFilters.FILTER_CARD_BASIC_LAND);
             player.searchLibrary(target, source, game);
             Cards cards = new CardsImpl(target.getTargets());
             cards.retainZone(Zone.LIBRARY, game);

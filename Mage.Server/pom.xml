@@ -33,7 +33,7 @@
             <groupId>${project.groupId}</groupId>
             <artifactId>mage-player-ai</artifactId>
             <version>${project.version}</version>
-            <scope>runtime</scope>
+            <scope>compile</scope>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
@@ -91,6 +91,12 @@
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
+            <artifactId>mage-player-p1</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
             <artifactId>mage-player-ai-mad</artifactId>
             <version>${project.version}</version>
             <scope>runtime</scope>
@@ -100,6 +106,12 @@
             <artifactId>mage-player-ai-mcts</artifactId>
             <version>${project.version}</version>
             <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>mage-player-llm</artifactId>
+            <version>${project.version}</version>
+            <scope>compile</scope>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
@@ -211,6 +223,14 @@
             <version>1.28.0</version>
         </dependency>
         <dependency>
+            <!-- replay .game container codec (ReplayCodec); BSD-2-Clause, native
+                 linux/amd64 among the bundled platforms. Version matches the one
+                 commons-compress 1.28.0 declares for its (optional) zstd path. -->
+            <groupId>com.github.luben</groupId>
+            <artifactId>zstd-jni</artifactId>
+            <version>1.5.7-4</version>
+        </dependency>
+        <dependency>
             <groupId>org.apache.shiro</groupId>
             <artifactId>shiro-core</artifactId>
             <version>1.13.0</version>
@@ -253,7 +273,7 @@
             <plugin>
                 <groupId>org.jvnet.jaxb2.maven2</groupId>
                 <artifactId>maven-jaxb2-plugin</artifactId>
-                <version>0.14.0</version>
+                <version>0.15.3</version>
                 <configuration>
                     <generatePackage>mage.server.util.config</generatePackage>
                     <schemaDirectory>./src/main/xml-resources/jaxb/Config/</schemaDirectory>

@@ -13,6 +13,7 @@ import mage.players.Player;
 import mage.target.Target;
 import mage.util.CardUtil;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -20,7 +21,16 @@ import java.util.UUID;
 /**
  * @author TheElk801
  */
-public class DungeonRoom {
+public class DungeonRoom implements Serializable {
+
+    // Deliberate replay pin. DungeonRoom reaches the .game save graph via the command zone
+    // (GameState.command -> Command -> Dungeon.dungeonRooms/currentRoom, and
+    // Dungeon.abilites -> RoomTriggeredAbility.room). Without Serializable it threw
+    // java.io.NotSerializableException: mage.game.command.DungeonRoom at save time, so the
+    // .game was left truncated and the .json sidecar was never written (lobby row showed
+    // "no player data (legacy save)"; Watch Replay was a silent no-op). The pin keeps the
+    // value stable across rebuilds so saves stay loadable. Same remedy as Deck / ManaCostImpl.
+    private static final long serialVersionUID = -4590315335003225207L;
 
     private final UUID id;
     private final String name;

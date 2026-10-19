@@ -9,6 +9,12 @@ import mage.constants.SubType;
  * @author muz
  */
 public final class SculptureTreasureToken extends TokenImpl {
+    // Pinned 2026-10-02 against silent UID drift orphaning the .game replay corpus
+    // the third instance is
+    // This is the value this class
+    // computed when the pin was added: it FREEZES the wire UID, so later field/method/superclass
+    // edits no longer change it. A deliberate format break must re-derive it explicitly.
+    private static final long serialVersionUID = -4048894276367478684L;
 
     public SculptureTreasureToken() {
         super("Sculpture Treasure Token", "1/1 colorless Sculpture Treasure artifact creature token with \"{T}, Sacrifice this token: Add one mana of any color.\"");

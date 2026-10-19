@@ -123,6 +123,30 @@ public class ConfigWrapper implements ConfigSettings {
         return config.getServer().getMailFromAddress();
     }
 
+    public String getLLMReasoningEffort() {
+        return config.getServer().getLlmReasoningEffort();
+    }
+
+    public String getLLMTranscriptDir() {
+        return config.getServer().getLlmTranscriptDir();
+    }
+
+    public String getLLM2Endpoint() {
+        return config.getServer().getLlm2Endpoint();
+    }
+
+    public String getLLM2Model() {
+        return config.getServer().getLlm2Model();
+    }
+
+    public String getLLM2ReasoningEffort() {
+        return config.getServer().getLlm2ReasoningEffort();
+    }
+
+    public String getLLM2ApiKey() {
+        return config.getServer().getLlm2ApiKey();
+    }
+
     public List<Plugin> getPlayerTypes() {
         return config.getPlayerTypes().getPlayerType();
     }

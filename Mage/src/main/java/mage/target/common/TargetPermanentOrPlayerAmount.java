@@ -64,7 +64,26 @@ public abstract class TargetPermanentOrPlayerAmount extends TargetAmount {
 
     @Override
     public boolean canTarget(UUID playerId, UUID objectId, Ability source, Game game) {
-        return canTarget(objectId, source, game);
+        Permanent permanent = game.getPermanent(objectId);
+        Player player = game.getPlayer(objectId);
+
+        if (source != null) {
+            if (permanent != null) {
+                // Evaluate as the CHOOSING player (the playerId argument), matching
+                // TargetPermanent.canTarget(playerId...). Before 2026-10-04 this
+                // overload dropped playerId and forwarded to the 3-arg one, so an
+                // off-controller chooser was validated against
+                // source.getControllerId() instead.
+
+                return (isNotTarget() || permanent.canBeTargetedBy(game.getObject(source), playerId, source, game))
+                        && filter.match(permanent, playerId, source, game);
+            }
+            if (player != null) {
+                return filter.match(player, game);
+            }
+        }
+
+        return false;
     }
 
     @Override

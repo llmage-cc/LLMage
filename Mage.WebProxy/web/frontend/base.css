@@ -1,0 +1,189 @@
+/* Design tokens + global reset for the XMage web client.
+   Trimmed from the mage-bench Astro site's base.css — the .site-nav /
+   .nav-link / .site-main / .site-footer rules were for the static docs
+   site and are not used by the web client. Only :root vars, the html/box
+   reset, and body baseline are kept. */
+
+:root {
+  --bg-base: #0c0c0f;
+  --bg-surface: #17171c;
+  --bg-elevated: #232329;
+  --bg-deep: #060608;
+  --bg-default: #17171c;
+  --border-default: #2e2e38;
+  --border-subtle: rgba(46, 46, 56, 0.6);
+  --text-primary: #f0f0f2;
+  --text-secondary: #b0b0bb;
+  --text-muted: #808088;
+  --accent-primary: #e0405b;
+  --accent-success: #4caf50;
+  --color-danger: #ef4444;
+  --danger: #e74c3c;
+  --format-standard: #5ddb6a;
+  --format-modern: #42a5f5;
+  --format-legacy: #c57bdb;
+  --format-commander: #ffa726;
+  --format-jumpstart: #e94560;
+  --medal-gold: #ffd700;
+  --medal-gold-rgb: 255, 215, 0;
+  --medal-silver: #c0c0c0;
+  --medal-silver-rgb: 192, 192, 192;
+  --medal-bronze: #cd7f32;
+  --medal-bronze-rgb: 205, 127, 50;
+  --text-prose: #d0d0d6;
+  --font-heading: 'Space Grotesk', system-ui, sans-serif;
+  --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-prose: 'Crimson Pro', 'Georgia', serif;
+
+  /* ── Responsive card sizing ──
+     Set by _updateResponsiveSizing() in app.js based on viewport width.
+     Default values match the original fixed sizes (80px card). */
+  --card-width: 80px;
+  --card-overlap: 98px;     /* vertical overlap for stacked cards (height + 18px) */
+  --card-sm-width: 60px;   /* small card (hand, stack) */
+  --card-font-pt: 0.7rem;  /* P/T font size */
+  --card-font-counter: 0.65rem; /* counter badge font size */
+  --card-font-badge: 0.75rem;  /* stack count badge font size */
+
+  /* ── Zoom-compensated viewport units ──
+     CSS vh/vw units reference the real (unzoomed) viewport. With zoom: 0.75
+     on html, height: 100vh renders at only 75% of the screen. These vars
+     compensate: var(--vh) = 100vh / zoom, so it fills the actual screen. */
+  --zoom: 0.75;
+  --vh: calc(100vh / var(--zoom));
+  --vw: calc(100vw / var(--zoom));
+
+  /* ── Whole-UI structural scale ──
+     --ui-scale scales the CHROME (rail widths, header/phase-bar/button paddings,
+     rail paddings/gaps) so the whole interface scales together — text already
+     scales via --font-scale above, cards via --card-width. App.tsx sets both
+     on :root; the default raises the chrome ~40% at every resolution (the
+     0.75 root zoom made header buttons ~18px tall and the side rails ~105px,
+     cramped even at 1920x1080). Structural px metrics consume it via
+     calc(<px> * var(--ui-scale)). */
+  --ui-scale: 1.35;
+}
+
+html {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  zoom: 0.75;  /* Replicates 75% browser zoom */
+  /* font-scale: set the rem base on <html> so ALL rem-based sizes across
+     the UI scale, not just the body text. App.tsx sets --font-scale on
+     :root; default 1 keeps the 16px browser default. */
+  font-size: calc(100% * var(--font-scale, 1));
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  /* font-scale: the scale is applied ONCE — on <html> above, by remapping the
+     rem base. 1rem here already reflects --font-scale; multiplying again on
+     body would double-scale all inherited text. */
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  height: var(--vh);
+  margin: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Light theme overrides ──
+   Activated when App.tsx sets data-theme="light" on <html>.
+   Overrides the :root dark color tokens with a clean light palette:
+   white/gray backgrounds, dark text. Zoom stays 0.75 to match the dark
+   theme's responsive sizing assumptions. */
+[data-theme='light'] {
+  --bg-base: #f5f5f7;
+  --bg-surface: #ffffff;
+  --bg-elevated: #e8e8ec;
+  --bg-deep: #e0e0e4;
+  --bg-default: #ffffff;
+  --border-default: #d0d0d8;
+  --border-subtle: rgba(180, 180, 190, 0.5);
+  --text-primary: #1a1a1f;
+  --text-secondary: #4a4a55;
+  --text-muted: #80808a;
+  --text-prose: #2a2a32;
+}
+
+[data-theme='light'] html,
+html[data-theme='light'] {
+  zoom: 0.75;
+}
+
+/* Card preview tooltip — game-renderer.css uses a hardcoded dark rgba
+   background. Override for the light theme so the preview is legible. */
+[data-theme='light'] #card-preview {
+  background: rgba(255, 255, 255, 0.97);
+}
+
+/* ── Scrollbars — on-theme, replaces the stock browser scrollbar ──
+   One global rule set for the whole webui. WebKit/Chromium gets the fully custom
+   rounded thumb below;
+   Firefox (no ::-webkit-scrollbar support) gets the standard thin
+   scrollbar tinted with the same tokens via the @supports branch.
+   NOTE: in Chrome 121+ the standard scrollbar-* properties DISABLE the
+   -webkit pseudo styling, so they are only set where webkit styling
+   can't apply — never set scrollbar-width/color unconditionally. */
+:root {
+  --scrollbar-size: 10px;
+  --scrollbar-thumb: #3a3a46;
+  --scrollbar-thumb-hover: #4f4f5a;
+  --scrollbar-thumb-active: #62626e;
+  --scrollbar-track: transparent;
+}
+
+[data-theme='light'] {
+  --scrollbar-thumb: #c6c6cf;
+  --scrollbar-thumb-hover: #adadb8;
+  --scrollbar-thumb-active: #95959f;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  }
+}
+
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  /* Transparent border + background-clip insets the thumb so it floats
+     inside its lane instead of touching both edges. */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: calc(var(--scrollbar-size) / 2);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background-color: var(--scrollbar-thumb-active);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}

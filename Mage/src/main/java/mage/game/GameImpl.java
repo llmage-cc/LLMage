@@ -95,6 +95,12 @@ import java.util.stream.Collectors;
  */
 public abstract class GameImpl implements Game {
 
+    // Pinned so .game replay files written before the Sep-12 rebuild (which
+    // added gameCards-repopulation methods to this class) still deserialize —
+    // method-adds don't invalidate state, only field changes would, and none
+    // happened here.
+    private static final long serialVersionUID = 1099330870954029593L;
+
     private final static AtomicInteger GLOBAL_INDEX = new AtomicInteger();
     public final static AtomicInteger COPIED_COUNT = new AtomicInteger();
 
@@ -119,8 +125,8 @@ public abstract class GameImpl implements Game {
     protected transient TableEventSource tableEventSource = new TableEventSource();
     protected transient PlayerQueryEventSource playerQueryEventSource = new PlayerQueryEventSource();
 
-    protected Map<UUID, Card> gameCards = new HashMap<>();
-    protected Map<UUID, MeldCard> meldCards = new HashMap<>(0);
+    protected transient Map<UUID, Card> gameCards = new HashMap<>();
+    protected transient Map<UUID, MeldCard> meldCards = new HashMap<>(0);
 
     protected Map<Zone, Map<UUID, MageObject>> lki = new EnumMap<>(Zone.class);
     protected Map<Zone, Map<UUID, CardState>> lkiCardState = new EnumMap<>(Zone.class);
@@ -156,6 +162,10 @@ public abstract class GameImpl implements Game {
     protected String startMessage;
 
     private boolean scopeRelevant = false; // replacement effects: used to indicate that currently applied replacement effects have to check for scope relevance (614.12 13/01/18)
+    // When saveGame is enabled (replay mode), GameStates pruning is skipped to preserve replay history.
+    // This causes unbounded growth in long matches — saveState saves on every bookmark AND once/turn,
+    // while removeBookmark guards pruning with `if (!saveGame)`. Known trade-off: replay fidelity vs memory.
+    // Future: consider adding a cap or ring-buffer even when saving to bound memory in marathon games.
     private boolean saveGame = false; // replay code, not done
     private int priorityTime; // Match time limit (per player). Set at the start of the match and only goes down.
     private int bufferTime; // Buffer time before priority time starts going down. Buffer time is refreshed every time the timer starts.
@@ -848,6 +858,15 @@ public abstract class GameImpl implements Game {
         if (!simulation && gameStates != null) {
             if (bookmark || saveGame) {
                 gameStates.save(state);
+                // When saveGame is on (replay mode), removeBookmark's pruning is
+                // disabled and states grow unbounded in long matches.
+                // Cap them — dropping the oldest states trades replay
+                // fidelity (earliest frames) for bounded memory. Bookmarks that
+                // land inside the dropped range fail restoreState loudly with
+                // the existing "bookmark does not exist" error, not silently.
+                if (saveGame) {
+                    gameStates.pruneOldest(10_000);
+                }
             }
         }
     }
@@ -1001,6 +1020,59 @@ public abstract class GameImpl implements Game {
     }
 
     /**
+     * Can the given bookmark still be restored? Bookmarks are positional (1-based index into
+     * savedStates) and the stack only ever loses entries from the top, so every bookmark up to
+     * the current size still refers to the state it was taken against. This is the same test
+     * restoreState applies before logging "bookmark does not exist".
+     */
+    @Override
+    public boolean hasBookmark(int bookmark) {
+        return bookmark > 0 && bookmark <= savedStates.size();
+    }
+
+    /**
+     * Auto-restore anchor for the priority loop ("save more bookmarks" policy).
+     * <p>
+     * The error path in playPriority rolls a failed action back to the state captured at the
+     * start of the loop iteration. That anchor can be dropped while the loop keeps running:
+     * bookmark churn inside an action prunes the stack down to an older bookmark
+     * (PlayerImpl.resetStoredBookmark -&gt; removeBookmark(storedBookmark), or an inner
+     * restoreState of a smaller bookmark), and removeBookmark pops every entry above its target.
+     * A dead anchor means the error path cannot restore, logs "Can't auto-restore to prev state"
+     * and continues from the half-applied action - the action and its trigger are silently lost
+     * (Thespian's Stage activation rolled back, Marit Lage trigger gone).
+     * <p>
+     * So: keep a valid anchor available at every point where a restore can occur - at the top of
+     * the iteration and again immediately before the two steps that can throw (the player's
+     * action and the resolution of the stack). Passing an anchor that is still valid returns it
+     * unchanged (no save, no log), so behaviour is unchanged whenever nothing ate it.
+     * Deliberately loud when it has to re-anchor (never silent): the drop itself is the bug
+     * signal.
+     * <p>
+     * Note: nested restore sites (PlayerImpl.triggerAbility/playAbility/playMana,
+     * ManaCostsImpl.payOrRollback, ManaUtil...) are not re-anchored this way on purpose - they
+     * take their bookmark right before the operation, so re-anchoring after the operation already
+     * mutated the state would make their restore a no-op. They are covered centrally by
+     * restoreState's unconditional missing-bookmark error.
+     *
+     * @param currentAnchor 0 or a previously taken anchor bookmark
+     * @return a still-valid anchor (the same one when it is alive, otherwise a fresh bookmark)
+     */
+    private int ensureRollbackBookmarkOnPriorityStart(int currentAnchor) {
+        if (currentAnchor != 0 && hasBookmark(currentAnchor)) {
+            return currentAnchor;
+        }
+        int newAnchor = bookmarkState();
+        if (currentAnchor != 0) {
+            logger.warn("Auto-restore anchor bookmark " + (currentAnchor - 1)
+                    + " was dropped while the priority loop kept running (savedStates size: "
+                    + savedStates.size() + ") - re-anchored to bookmark "
+                    + (newAnchor - 1));
+        }
+        return newAnchor;
+    }
+
+    /**
      * Warning, for inner usage only, use player.restoreState as much as possible instead
      *
      * @param bookmark
@@ -1011,16 +1083,25 @@ public abstract class GameImpl implements Game {
     public GameState restoreState(int bookmark, String context) {
         if (!simulation && !this.hasEnded()) { // if player left or game is over no undo is possible - this could lead to wrong winner
             if (bookmark != 0) {
-                if (!savedStates.contains(bookmark - 1)) {
-                    if (!savedStates.isEmpty()) { // empty if rollback to a turn was requested before, otherwise unclear why
-                        logger.error("It was not possible to do the requested undo operation (bookmark " + (bookmark - 1) + " does not exist) context: " + context);
-                        logger.info("Saved states: " + savedStates.toString());
-                    }
+                if (!hasBookmark(bookmark)) {
+                    // Loud, never silent: this is the state where the
+                    // caller's action/trigger is dropped without a rollback. The old code
+                    // suppressed the message entirely when savedStates was empty (the shape
+                    // after a turn rollback cleared the stack), so the loss left no trace.
+                    logger.error("It was not possible to do the requested undo operation (bookmark "
+                            + (bookmark - 1) + " does not exist, savedStates size: " + savedStates.size()
+                            + (savedStates.isEmpty() ? " - no saved states at all" : "")
+                            + ") context: " + context);
                 } else {
                     int stateNum = savedStates.get(bookmark - 1);
                     removeBookmark(bookmark);
                     GameState restore = gameStates.rollback(stateNum);
                     if (restore != null) {
+                        // Same log rule as a turn rollback: an undone action's
+                        // log line must not survive (it describes something that
+                        // did not happen), and the LLM prompt cursor is moved
+                        // back via the truncation epoch.
+                        state.truncateGameLog(restore.getGameLogCount());
                         state.restore(restore);
                         playerList.setCurrent(state.getPlayerByOrderId());
                         return state;
@@ -1038,7 +1119,10 @@ public abstract class GameImpl implements Game {
                 while (savedStates.size() > bookmark) {
                     savedStates.pop();
                 }
-                gameStates.remove(bookmark);
+                // Don't remove gameStates if saveGame is enabled — they're needed for replay
+                if (!saveGame) {
+                    gameStates.remove(bookmark);
+                }
             }
         }
     }
@@ -1049,8 +1133,11 @@ public abstract class GameImpl implements Game {
             if (bookmark != 0) {
                 while (savedStates.size() >= bookmark) {
                     int outdatedIndex = savedStates.pop();
-                    while (gameStates.getSize() - 1 >= outdatedIndex) {
-                        gameStates.remove(gameStates.getSize() - 1);
+                    // Don't remove gameStates if saveGame is enabled — they're needed for replay
+                    if (!saveGame) {
+                        while (gameStates.getSize() - 1 >= outdatedIndex) {
+                            gameStates.remove(gameStates.getSize() - 1);
+                        }
                     }
                 }
             }
@@ -1062,7 +1149,10 @@ public abstract class GameImpl implements Game {
             while (!savedStates.isEmpty()) {
                 savedStates.pop();
             }
-            gameStates.remove(0);
+            // Don't clear gameStates if saveGame is enabled — they're needed for replay
+            if (!saveGame) {
+                gameStates.remove(0);
+            }
             for (Player player : getPlayers().values()) {
                 player.setStoredBookmark(-1);
             }
@@ -1824,9 +1914,10 @@ public abstract class GameImpl implements Game {
                 Player player;
                 while (!isPaused() && !checkIfGameIsOver()) {
                     try {
-                        if (rollbackBookmarkOnPriorityStart == 0) {
-                            rollbackBookmarkOnPriorityStart = bookmarkState();
-                        }
+                        // Keep a valid auto-restore anchor available at every point where a
+                        // restore can occur - the
+                        // top of the iteration plus, below, every point that can throw.
+                        rollbackBookmarkOnPriorityStart = ensureRollbackBookmarkOnPriorityStart(rollbackBookmarkOnPriorityStart);
                         player = getPlayer(state.getPlayerList().get());
                         state.setPriorityPlayerId(player.getId());
                         while (!player.isPassed() && player.canRespond() && !isPaused() && !checkIfGameIsOver()) {
@@ -1842,6 +1933,7 @@ public abstract class GameImpl implements Game {
                                     return;
                                 }
                                 // resetPassed should be called if player performs any action
+                                rollbackBookmarkOnPriorityStart = ensureRollbackBookmarkOnPriorityStart(rollbackBookmarkOnPriorityStart);
                                 if (player.priority(this)) {
                                     if (executingRollback()) {
                                         return;
@@ -1863,6 +1955,7 @@ public abstract class GameImpl implements Game {
                         if (allPassed()) {
                             if (!state.getStack().isEmpty()) {
                                 //20091005 - 115.4
+                                rollbackBookmarkOnPriorityStart = ensureRollbackBookmarkOnPriorityStart(rollbackBookmarkOnPriorityStart);
                                 resolve();
                                 checkConcede();
                                 applyEffects();
@@ -1897,12 +1990,19 @@ public abstract class GameImpl implements Game {
                         }
 
                         // rollback to prev state
+                        int failedAnchor = rollbackBookmarkOnPriorityStart;
                         GameState restoredState = restoreState(rollbackBookmarkOnPriorityStart, "Game error: " + e);
                         rollbackBookmarkOnPriorityStart = 0;
                         if (restoredState != null) {
                             this.informPlayers(String.format("Auto-restored to %s due game error: %s", restoredState, e));
                         } else {
-                            logger.error("Can't auto-restore to prev state");
+                            // Keep the loud signal: this is the point where the
+                            // failing action and any trigger it carried are dropped. The anchor is
+                            // re-taken at the next iteration (ensureRollbackBookmarkOnPriorityStart),
+                            // so one bad iteration no longer disables recovery for the rest of the loop.
+                            logger.error("Can't auto-restore to prev state (bookmark "
+                                    + (failedAnchor - 1) + " was already dropped, savedStates size: "
+                                    + savedStates.size() + ") - action and its trigger are lost");
                         }
 
                         // count total errors
@@ -3706,6 +3806,115 @@ public abstract class GameImpl implements Game {
         tableEventSource = new TableEventSource();
         playerQueryEventSource = new PlayerQueryEventSource();
         gameStates = new GameStates();
+        gameCards = new HashMap<>();
+        meldCards = new HashMap<>(0);
+    }
+
+    /**
+     * Rebuild the transient gameCards index after a .game replay load.
+     *
+     * The map is transient (not serialized), so readObject re-creates it EMPTY
+     * and nothing ever repopulates it — every frame with a spell/ability on the
+     * stack NPEs in CardView (CardView.java:335 ← GameView.java:101 ←
+     * SpellAbility.getCharacteristics → getCard(sourceId) == null), and
+     * hand/graveyard/exile render empty because CardsImpl.getCards filters on
+     * getCard(id) != null. Verified on 1672/1672 frames across 6 real .game
+     * files: repopulating from
+     * each loaded GameState's zone contents (including card PARTS for
+     * split/adventure/MDFC halves — they carry their own ids and are referenced
+     * individually, e.g. "Life" from Life // Death) eliminates every error.
+     *
+     * Called from GameReplay.loadGame() AFTER loadGameStates(...) so the
+     * snapshots are in place. Walking the loaded states is the only source of
+     * truth available at replay load time: the serialized Game does not carry
+     * MatchPlayer.getDeck() (that lives on the server-side match, out of scope
+     * of what saveGame writes). A first-frame walk is sufficient — anything
+     * referenced by any later frame was present in an earlier state.
+     */
+    @Override
+    public void rebuildGameCardsFromStates() {
+        if (gameStates == null) {
+            return;
+        }
+        for (int i = 0; i < gameStates.getSize(); i++) {
+            GameState s = gameStates.get(i);
+            if (s == null) continue;
+            collectStateCards(s);
+        }
+    }
+
+    private void collectStateCards(GameState s) {
+        // Hand, graveyard, library, battlefield, stack, exile, command — every
+        // zone a card can occupy that a viewer can look up by id. All are
+        // fetched out of the state snapshot, never a live game.
+        for (mage.players.Player p : s.getPlayers().values()) {
+            indexCardSet(p.getHand());
+            indexCardSet(p.getGraveyard());
+            indexCardSet(p.getLibrary().getTopCards(this, p.getLibrary().size()));
+            for (mage.game.permanent.Permanent perm : s.getBattlefield().getAllPermanents()) {
+                if (perm != null) indexCardWithParts(perm);
+            }
+            for (CommandObject cmd : s.getCommand()) {
+                indexCommandObject(cmd);
+            }
+        }
+        for (StackObject so : s.getStack()) {
+            if (so instanceof mage.game.stack.Spell) {
+                indexCardWithParts(((mage.game.stack.Spell) so).getCard());
+            } else if (so instanceof mage.abilities.Ability) {
+                indexStackAbility((mage.abilities.Ability) so);
+            }
+        }
+        for (mage.cards.Cards exile : s.getExile().getExileZones()) {
+            indexCardSet(exile);
+        }
+    }
+
+    private void indexStackAbility(mage.abilities.Ability ability) {
+        // Stack abilities (ActivatedAbility/TriggeredAbility on the stack) wrap a
+        // MageObject source — index the source card + its parts so
+        // getCard(sourceId) resolves during replay rendering.
+        if (ability == null) return;
+        MageObject src = getObject(ability.getSourceId());
+        if (src == null) return;
+        if (src instanceof Card) {
+            indexCardWithParts(src);
+        }
+    }
+
+    private void indexCommandObject(CommandObject cmd) {
+        if (cmd == null) return;
+        if (cmd instanceof mage.game.command.Commander) {
+            indexCardWithParts(((mage.game.command.Commander) cmd).getSourceObject());
+        }
+    }
+
+    private void indexCardSet(java.lang.Iterable<?> cards) {
+        if (cards == null) return;
+        for (Object o : cards) {
+            if (o instanceof Card) {
+                indexCardWithParts((Card) o);
+            }
+        }
+    }
+
+    private void indexCardWithParts(Object mageObject) {
+        if (mageObject == null) return;
+        if (mageObject instanceof PermanentCard) {
+            mageObject = ((PermanentCard) mageObject).getCard();
+        }
+        Card card = (mageObject instanceof Card) ? (Card) mageObject : null;
+        if (card == null) return;
+        gameCards.putIfAbsent(card.getId(), card);
+        // Each part (split/adventure halves, spell options, night faces, melds)
+        // is addressed by its OWN id and must be individually indexable.
+        for (MageObject part : CardUtil.getObjectPartsAsObjects(card)) {
+            if (part instanceof Card) {
+                gameCards.putIfAbsent(part.getId(), (Card) part);
+            } else if (part instanceof MeldCard) {
+                meldCards.putIfAbsent(part.getId(), (MeldCard) part);
+            }
+        }
     }
 
     /**
@@ -4159,12 +4368,34 @@ public abstract class GameImpl implements Game {
     private void rollbackTurnsExecution(int turnToGoToForRollback) {
         GameState restore = gameStatesRollBack.get(turnToGoToForRollback);
         if (restore != null) {
+            // Game log: drop the aborted timeline's lines BEFORE the
+            // announcement, so the announcement itself (a real event) is kept
+            // and the re-played turns append after it. Without this the log
+            // keeps lines for plays that never happened (the replay would
+            // double-log every re-played event).
+            int removedLog = state.truncateGameLog(restore.getGameLogCount());
             informPlayers(GameLog.getPlayerRequestColoredText("Player request: Rolling back to start of turn " + restore.getTurnNum()));
+            if (removedLog > 0) {
+                logger.info("Rollback to turn " + restore.getTurnNum() + ": dropped "
+                        + removedLog + " aborted-timeline log entries, kept "
+                        + restore.getGameLogCount());
+            }
             state.restoreForRollBack(restore);
             playerList.setCurrent(state.getPlayerByOrderId());
             // Reset temporary created bookmarks because no longer valid after rollback
             savedStates.clear();
-            gameStates.clear();
+            // Replay timeline: drop only the states of the aborted timeline
+            // (from the rollback target turn onward) and keep everything
+            // before it, so the re-played turns append after a preserved
+            // prefix and the saved .game stays one cohesive replay of the
+            // final game. gameStates IS the object serialized by
+            // GameController.saveGame, so clear() here used to erase all
+            // earlier turns from every replay of a rollback-affected game
+
+            int removedStates = gameStates.truncateFromTurn(restore.getTurnNum());
+            logger.info("Rollback to turn " + restore.getTurnNum() + ": kept "
+                    + gameStates.getSize() + " replay states, dropped " + removedStates
+                    + " from the aborted timeline");
             // because restore uses the objects without copy each copy the state again
             gameStatesRollBack.put(getTurnNum(), state.copy());
 

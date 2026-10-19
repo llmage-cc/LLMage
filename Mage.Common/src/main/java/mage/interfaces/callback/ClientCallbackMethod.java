@@ -46,6 +46,9 @@ public enum ClientCallbackMethod {
     USER_REQUEST_DIALOG(ClientCallbackType.DIALOG, "userRequestDialog"),
     GAME_REDRAW_GUI(ClientCallbackType.CLIENT_SIDE_EVENT, "gameRedrawGUI"),
 
+    // llm
+    LLM_PROMPT(ClientCallbackType.DIALOG, "llmPrompt"),
+
     // game
     START_GAME(ClientCallbackType.TABLE_CHANGE, "startGame"),
     GAME_INIT(ClientCallbackType.TABLE_CHANGE, "gameInit"),

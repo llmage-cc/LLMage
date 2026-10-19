@@ -92,7 +92,8 @@ class SylvanPrimordialEffect extends OneShotEffect {
             }
         }
         if (destroyedCreatures > 0) {
-            new SearchLibraryPutInPlayEffect(new TargetCardInLibrary(destroyedCreatures, filterForest), true).apply(game, source);
+            // "up to X" — a partial find (0..destroyedCreatures) is allowed (CR 701.23b)
+            new SearchLibraryPutInPlayEffect(new TargetCardInLibrary(0, destroyedCreatures, filterForest), true).apply(game, source);
         }
         return result;
     }

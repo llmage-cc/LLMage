@@ -467,8 +467,13 @@ public class ManaOptionsTest extends CardTestPlayerBase {
 
         ManaOptions manaOptions = playerA.getAvailableManaTest(currentGame);
 
-        Assert.assertEquals("mana variations don't fit", 1, manaOptions.size());
+        // Damping Sphere turns the land's 2+ mana production into {C}, but the replaced mana is
+        // still produced by the conditional ability, so its restriction stays intact. The union
+        // no longer collapses the condition: options are the
+        // unconditional {C} of the first ability and the restricted {C} of the second one.
+        Assert.assertEquals("mana variations don't fit", 2, manaOptions.size());
         assertManaOptions("{C}", manaOptions);
+        assertManaOptions("{C}[{EldraziTempleCondition}]", manaOptions);
     }
 
     @Test
@@ -485,8 +490,12 @@ public class ManaOptionsTest extends CardTestPlayerBase {
 
         ManaOptions manaOptions = playerA.getAvailableManaTest(currentGame);
 
-        Assert.assertEquals("mana variations don't fit", 1, manaOptions.size());
-        assertManaOptions("{C}{C}", manaOptions);
+        // The Pendant adds nothing here (no revealed top card outside of paying), so only the
+        // Eldrazi Temple options remain: unconditional {C} (first ability) and the restricted
+        // {C}{C}.
+        Assert.assertEquals("mana variations don't fit", 2, manaOptions.size());
+        assertManaOptions("{C}", manaOptions);
+        assertManaOptions("{C}{C}[{EldraziTempleCondition}]", manaOptions);
     }
 
     @Test

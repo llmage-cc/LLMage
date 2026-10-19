@@ -78,7 +78,8 @@ class ScapeshiftEffect extends OneShotEffect {
                 }
             }
         }
-        TargetCardInLibrary target = new TargetCardInLibrary(amount, new FilterLandCard("lands"));
+        // "up to that many" — a partial find (0..amount) is allowed (CR 701.23b), so min 0, max amount
+        TargetCardInLibrary target = new TargetCardInLibrary(0, amount, new FilterLandCard("lands"));
         if (controller.searchLibrary(target, source, game)) {
             controller.moveCards(new CardsImpl(target.getTargets()).getCards(game),
                     Zone.BATTLEFIELD, source, game, true, false, false, null);

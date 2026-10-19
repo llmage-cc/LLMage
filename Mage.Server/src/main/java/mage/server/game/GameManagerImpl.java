@@ -8,8 +8,10 @@ import mage.game.GameOptions;
 import mage.server.managers.GameManager;
 import mage.server.managers.ManagerFactory;
 import mage.view.GameView;
+import mage.MageException;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -70,6 +72,12 @@ public class GameManagerImpl implements GameManager {
             return Optional.of(gameController.getChatId());
         }
         return Optional.empty();
+    }
+
+    @Override
+    public UUID getTableIdForGame(UUID gameId) {
+        GameController gameController = getGameControllerSafe(gameId);
+        return gameController != null ? gameController.getTableId() : null;
     }
 
     @Override
@@ -150,6 +158,14 @@ public class GameManagerImpl implements GameManager {
         GameController gameController = getGameControllerSafe(gameId);
         if (gameController != null) {
             gameController.cheatShow(playerId);
+        }
+    }
+
+    @Override
+    public void cheatSetup(UUID gameId, UUID userId, UUID playerId, Map<String, List<String>> cardsByZone) throws MageException {
+        GameController gameController = getGameControllerSafe(gameId);
+        if (gameController != null) {
+            gameController.cheatSetup(playerId, cardsByZone);
         }
     }
 

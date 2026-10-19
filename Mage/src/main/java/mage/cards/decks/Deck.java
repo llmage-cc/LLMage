@@ -7,6 +7,7 @@ import mage.cards.repository.CardRepository;
 import mage.game.GameException;
 import mage.util.Copyable;
 import mage.util.DeckUtil;
+import org.apache.log4j.Logger;
 
 import java.io.Serializable;
 import java.util.LinkedHashSet;
@@ -22,13 +23,28 @@ import java.util.stream.Collectors;
  */
 public class Deck implements Serializable, Copyable<Deck> {
 
+    // Pinned so that the class's serial form does not move when the code around it does.
+    // Without this, the default UID is computed from the class STRUCTURE — including
+    // whether it has a <clinit> — so merely adding a static field renumbers it and every
+    // previously saved replay fails to deserialize:
+    //   java.io.InvalidClassException: mage.cards.decks.Deck; local class incompatible:
+    //     stream classdesc serialVersionUID = -2364735690361892296,
+    //     local class serialVersionUID = 3337142473934398759
+    // That is exactly what happened on 2026-09-16, when a static Logger was added to this
+    // class and orphaned both saves in saved/.
+    // The value below is the pre-change UID, so the already-saved .game files load again.
+    // Same treatment GameImpl and GameStates already carry for the replay path.
+    private static final long serialVersionUID = -2364735690361892296L;
+
+    private static final Logger logger = Logger.getLogger(Deck.class);
+
     static final int MAX_CARDS_PER_DECK = 2000;
 
     private String name; // TODO: must rework somehow - tiny leaders use deck name to find commander card and hide it for a user
     private final Set<Card> cards = new LinkedHashSet<>();
     private final Set<Card> sideboard = new LinkedHashSet<>();
-    private DeckCardLayout cardsLayout; // client side only
-    private DeckCardLayout sideboardLayout; // client side only
+    private transient DeckCardLayout cardsLayout; // client side only
+    private transient DeckCardLayout sideboardLayout; // client side only
 
     public Deck() {
         super();
@@ -91,7 +107,7 @@ public class Deck implements Serializable, Copyable<Deck> {
                     break main;
                 }
 
-                Card card = createCard(deckCardInfo, mockCards, cardInfoCache);
+                Card card = createCard(deckCardInfo, mockCards, cardInfoCache, deckCardLists.getName());
                 if (card != null) {
                     deck.cards.add(card);
                     totalCards++;
@@ -108,7 +124,7 @@ public class Deck implements Serializable, Copyable<Deck> {
                 if (totalCards > MAX_CARDS_PER_DECK) {
                     break side;
                 }
-                Card card = createCard(deckCardInfo, mockCards, cardInfoCache);
+                Card card = createCard(deckCardInfo, mockCards, cardInfoCache, deckCardLists.getName());
                 if (card != null) {
                     deck.sideboard.add(card);
                     totalCards++;
@@ -140,7 +156,7 @@ public class Deck implements Serializable, Copyable<Deck> {
         }
     }
 
-    private static Card createCard(DeckCardInfo deckCardInfo, boolean mockCards, Map<String, CardInfo> cardInfoCache) {
+    private static Card createCard(DeckCardInfo deckCardInfo, boolean mockCards, Map<String, CardInfo> cardInfoCache, String deckName) throws GameException {
         CardInfo cardInfo;
         if (cardInfoCache != null) {
             // from cache
@@ -153,6 +169,31 @@ public class Deck implements Serializable, Copyable<Deck> {
         } else {
             // from db
             cardInfo = CardRepository.instance.findCard(deckCardInfo.getSetCode(), deckCardInfo.getCardNumber());
+        }
+
+        // Fail Fast: a [SET:NUM] code that resolves to a DIFFERENT card than the deck list
+        // line names must never be imported silently. The code was
+        // valid, so the card is found and everything downstream (deck validation, game)
+        // happily uses the wrong card. Check only the set/number lookup result: the
+        // name-based fallback below matches by name by construction, and a line with an
+        // empty name has nothing to contradict. ignoreErrors does NOT suppress this —
+        // it only tolerates unknown cards, never the wrong card.
+        String lineCardName = deckCardInfo.getCardName();
+        if (cardInfo != null && lineCardName != null && !lineCardName.trim().isEmpty()
+                && !CardNameUtil.isSameCardName(lineCardName, cardInfo)) {
+            String error = CardNameUtil.buildWrongCardError(lineCardName, cardInfo)
+                    + (deckName == null || deckName.isEmpty() ? "" : " (deck " + deckName + ")");
+            logger.error(error);
+            throw new GameException(error);
+        }
+
+        // Fallback: if setCode/cardNumber lookup fails (e.g. null values from random deck gen),
+        // try name-based lookup.
+        // NOTE: findCard(cardName) returns a *random* printing of the card name (non-deterministic).
+        // This is acceptable for random-deck generation (BotGameHandler.generateRandomDeck passes
+        // null set/number), but the specific art/set chosen will vary run-to-run.
+        if (cardInfo == null) {
+            cardInfo = CardRepository.instance.findCard(deckCardInfo.getCardName());
         }
 
         if (cardInfo == null) {

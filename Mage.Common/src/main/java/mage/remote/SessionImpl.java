@@ -605,7 +605,7 @@ public class SessionImpl implements Session {
         // copy + clear must be under the same lock, otherwise a callback added between the copy
         // and the clear of another thread is lost; all access goes through synchronized (waitingCallbacks)
         final List<ClientCallback> waitingCallbacks = new ArrayList<>();
-        //final CopyOnWriteArrayList<ClientCallback> waitingCallbacks = new CopyOnWriteArrayList<>();
+        //final CopyOnWriteArrayList<ClientCallback> waitingCallbacks = new CopyOnWriteArrayList<>;
 
         @Override
         public void handleCallback(Callback callback) {
@@ -1008,6 +1008,53 @@ public class SessionImpl implements Session {
                 actionData.value = data;
                 appendJsonLog(actionData);
                 server.sendPlayerManaType(gameId, playerId, sessionId, data);
+                return true;
+            }
+        } catch (MageException ex) {
+            handleMageException(ex);
+        } catch (Throwable t) {
+            handleThrowable(t);
+        }
+        return false;
+    }
+
+    // ── Client-key LLM bridge ──
+    // The raw provider response never enters this JVM's logs (only the
+    // ActionData stub does); the response body itself is what completes the
+    // server-side future. See LLMBridgeRegistry for the security model.
+
+    @Override
+    public boolean llmDecision(mage.interfaces.LLMPromptPayload.Decision decision) {
+        try {
+            if (isConnected()) {
+                // JSON log entry is deliberately minimal: requestId only. The
+                // decision body may contain game state and provider output —
+                // never log it wholesale (ActionData.value is serialized to
+                // gamelogsJson on json-log-enabled servers).
+                ActionData actionData = new ActionData("LLM_DECISION", null, getSessionId());
+                actionData.value = decision != null ? decision.requestId.toString() : null;
+                appendJsonLog(actionData);
+
+                server.llmDecision(sessionId, decision);
+                return true;
+            }
+        } catch (MageException ex) {
+            handleMageException(ex);
+        } catch (Throwable t) {
+            handleThrowable(t);
+        }
+        return false;
+    }
+
+    @Override
+    public boolean llmError(mage.interfaces.LLMPromptPayload.Failure failure) {
+        try {
+            if (isConnected()) {
+                ActionData actionData = new ActionData("LLM_ERROR", null, getSessionId());
+                actionData.value = failure != null ? failure.requestId.toString() : null;
+                appendJsonLog(actionData);
+
+                server.llmError(sessionId, failure);
                 return true;
             }
         } catch (MageException ex) {
@@ -1546,11 +1593,40 @@ public class SessionImpl implements Session {
     }
 
     @Override
+    public boolean seekTo(UUID gameId, int stateIndex) {
+        try {
+            if (isConnected()) {
+                server.replaySeek(gameId, sessionId, stateIndex);
+                return true;
+            }
+        } catch (MageException ex) {
+            handleMageException(ex);
+        } catch (Throwable t) {
+            handleThrowable(t);
+        }
+        return false;
+    }
+
+    @Override
     public boolean cheatShow(UUID gameId, UUID playerId) {
         try {
             if (isConnected()) {
                 server.cheatShow(gameId, sessionId, playerId);
                 return true;
+            }
+        } catch (MageException ex) {
+            handleMageException(ex);
+        } catch (Throwable t) {
+            handleThrowable(t);
+        }
+        return false;
+    }
+
+    @Override
+    public boolean cheatSetup(UUID gameId, UUID playerId, Map<String, List<String>> cardsByZone) {
+        try {
+            if (isConnected()) {
+                return server.cheatSetup(gameId, sessionId, playerId, cardsByZone);
             }
         } catch (MageException ex) {
             handleMageException(ex);

@@ -26,6 +26,7 @@ import mage.game.draft.DraftOptions.TimingOption;
 import mage.game.tournament.LimitedOptions;
 import mage.game.tournament.TournamentOptions;
 import mage.players.PlayerType;
+import mage.players.LLMPlayerConfig;
 import mage.view.GameTypeView;
 import mage.view.TableView;
 import mage.view.TournamentTypeView;
@@ -98,7 +99,8 @@ public class NewTournamentDialog extends MageDialog {
         if (!lastSessionId.equals(SessionHandler.getSessionId())) {
             lastSessionId = SessionHandler.getSessionId();
             this.player1Panel.setPlayerName(SessionHandler.getUserName());
-            this.player1Panel.showLevel(false); // no computer
+            this.player1Panel.showLevel(true); // allow AI for player 1
+            this.player1Panel.showTypeSelector(true); // allow player 1 to be AI too
             cbTournamentType.setModel(new DefaultComboBoxModel(SessionHandler.getTournamentTypes().toArray()));
 
             cbGameType.setModel(new DefaultComboBoxModel(SessionHandler.getTournamentGameTypes().toArray()));
@@ -384,7 +386,7 @@ public class NewTournamentDialog extends MageDialog {
 
         spnConstructTime.setToolTipText("The time players have to build their deck.");
 
-        player1Panel.setPreferredSize(new java.awt.Dimension(400, 44));
+        player1Panel.setPreferredSize(new java.awt.Dimension(400, 80));
 
         pnlOtherPlayers.setBorder(javax.swing.BorderFactory.createEtchedBorder());
         pnlOtherPlayers.setLayout(new java.awt.GridLayout(0, 1, 2, 0));
@@ -634,7 +636,7 @@ public class NewTournamentDialog extends MageDialog {
                         .addComponent(spnConstructTime, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
                         .addComponent(lblConstructionTime)))
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(player1Panel, javax.swing.GroupLayout.PREFERRED_SIZE, 62, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addComponent(player1Panel, javax.swing.GroupLayout.PREFERRED_SIZE, 80, javax.swing.GroupLayout.PREFERRED_SIZE)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addComponent(pnlPlayers, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
@@ -739,12 +741,65 @@ public class NewTournamentDialog extends MageDialog {
             return;
         }
 
-        // join AI
+        // Determine player 1 type before joining
+        PlayerType player1Type = this.player1Panel.getPlayerType();
+        boolean player1IsAi = (player1Type != PlayerType.HUMAN);
+
+        // Fail Fast: validate that AI seats have a deck selected before sending to the server.
+        // An empty deck file causes a cryptic server-side error; surface it clearly here.
+        // Only validate for constructed (non-limited) tournaments — limited tournaments
+        // draft/deck-build at the table, so no pre-selected deck is expected.
+        if (!tournamentType.isLimited()) {
+            if (player1IsAi) {
+                String p1Deck = this.player1Panel.getDeckFile();
+                if (p1Deck == null || p1Deck.trim().isEmpty()) {
+                    JOptionPane.showMessageDialog(MageFrame.getDesktop(),
+                            "Please select a deck for AI player 1 (" + this.player1Panel.getPlayerName() + ").",
+                            "Missing Deck", JOptionPane.WARNING_MESSAGE);
+                    SessionHandler.removeTable(roomId, table.getTableId());
+                    table = null;
+                    return;
+                }
+            }
+            int aiSeatNum = player1IsAi ? 2 : 1;
+            for (TournamentPlayerPanel player : players) {
+                if (player.getPlayerType().getSelectedItem() != PlayerType.HUMAN) {
+                    String deck = player.getDeckFile();
+                    if (deck == null || deck.trim().isEmpty()) {
+                        JOptionPane.showMessageDialog(MageFrame.getDesktop(),
+                                "Please select a deck for AI player " + aiSeatNum + ".",
+                                "Missing Deck", JOptionPane.WARNING_MESSAGE);
+                        SessionHandler.removeTable(roomId, table.getTableId());
+                        table = null;
+                        return;
+                    }
+                }
+                aiSeatNum++;
+            }
+        }
+
+        if (player1IsAi) {
+            // Join player 1 first so it gets the first LLM seat
+            if (!SessionHandler.joinTournamentTable(
+                    roomId,
+                    table.getTableId(),
+                    this.player1Panel.getPlayerName(),
+                    player1Type,
+                    this.player1Panel.getSkillLevel(),
+                    DeckImporter.importDeckFromFile(this.player1Panel.getDeckFile(), true),
+                    tOptions.getPassword())) {
+                JOptionPane.showMessageDialog(MageFrame.getDesktop(), "Error joining AI player 1 to tournament.", "Error", JOptionPane.ERROR_MESSAGE);
+                SessionHandler.removeTable(roomId, table.getTableId());
+                table = null;
+                return;
+            }
+        }
+
+        // join AI (other players)
         for (TournamentPlayerPanel player : players) {
             if (player.getPlayerType().getSelectedItem() != PlayerType.HUMAN) {
-                // TODO: add support of multiple deck files per each computer player (can be implemented after combine table/tourney dialog in one)
-                if (!player.joinTournamentTable(roomId, table.getTableId(), DeckImporter.importDeckFromFile(this.player1Panel.getDeckFile(), true))) {
-                    // error message must be send by sever
+                if (!player.joinTournamentTable(roomId, table.getTableId(), DeckImporter.importDeckFromFile(player.getDeckFile(), true))) {
+                    JOptionPane.showMessageDialog(MageFrame.getDesktop(), "Error joining AI player to tournament.", "Error", JOptionPane.ERROR_MESSAGE);
                     SessionHandler.removeTable(roomId, table.getTableId());
                     table = null;
                     return;
@@ -752,17 +807,30 @@ public class NewTournamentDialog extends MageDialog {
             }
         }
 
-        // join itself
-        if (SessionHandler.joinTournamentTable(
-                roomId,
-                table.getTableId(),
-                this.player1Panel.getPlayerName(),
-                PlayerType.HUMAN, 1,
-                DeckImporter.importDeckFromFile(this.player1Panel.getDeckFile(), true),
-                tOptions.getPassword())) {
-            // all fine, can close create dialog (join dialog will be opened after feedback from server)
+        if (player1IsAi) {
+            // Start the tournament immediately and watch (no human at the table)
+            if (!SessionHandler.startTournament(roomId, table.getTableId())) {
+                JOptionPane.showMessageDialog(MageFrame.getDesktop(), "Error starting tournament.", "Error", JOptionPane.ERROR_MESSAGE);
+                SessionHandler.removeTable(roomId, table.getTableId());
+                table = null;
+                return;
+            }
+            SessionHandler.watchTable(roomId, table.getTableId());
             doClose();
             return;
+        } else {
+            // join as human (the user themselves)
+            if (SessionHandler.joinTournamentTable(
+                    roomId,
+                    table.getTableId(),
+                    this.player1Panel.getPlayerName(),
+                    PlayerType.HUMAN, 1,
+                    DeckImporter.importDeckFromFile(this.player1Panel.getDeckFile(), true),
+                    tOptions.getPassword())) {
+                // all fine, can close create dialog (join dialog will be opened after feedback from server)
+                doClose();
+                return;
+            }
         }
 
         JOptionPane.showMessageDialog(MageFrame.getDesktop(), "Error joining tournament.", "Error", JOptionPane.ERROR_MESSAGE);
@@ -1315,7 +1383,7 @@ public class NewTournamentDialog extends MageDialog {
         TournamentOptions tOptions = new TournamentOptions(this.txtName.getText(), "", chkSingleMultiplayerGame.isSelected());
         tOptions.setTournamentType(tournamentType.getName());
         tOptions.setPassword(txtPassword.getText());
-        tOptions.getPlayerTypes().add(PlayerType.HUMAN);
+        tOptions.getPlayerTypes().add(this.player1Panel.getPlayerType());
         tOptions.setWatchingAllowed(cbAllowSpectators.isSelected());
         tOptions.setQuitRatio((Integer) spnQuitRatio.getValue());
         tOptions.setMinimumRating((Integer) spnMinimumRating.getValue());
@@ -1433,6 +1501,21 @@ public class NewTournamentDialog extends MageDialog {
         tOptions.getMatchOptions().setRollbackTurnsAllowed(this.chkRollbackTurnsAllowed.isSelected());
         tOptions.getMatchOptions().setRated(this.chkRated.isSelected());
         customOptions.writeMatchOptionsTo(tOptions.getMatchOptions());
+
+        // Collect per-player LLM config overrides from all LLM seats
+        List<LLMPlayerConfig> llmConfigs = new ArrayList<>();
+        // Player 1 first (uses NewPlayerPanel, not TournamentPlayerPanel)
+        if (this.player1Panel.getPlayerType() == PlayerType.COMPUTER_LLM) {
+            LLMPlayerConfig cfg = this.player1Panel.getLlmPlayerConfig();
+            if (cfg != null) llmConfigs.add(cfg);
+        }
+        for (TournamentPlayerPanel player : players) {
+            if (player.getPlayerType().getSelectedItem() == PlayerType.COMPUTER_LLM) {
+                LLMPlayerConfig cfg = player.getLlmPlayerConfig();
+                if (cfg != null) llmConfigs.add(cfg);
+            }
+        }
+        tOptions.getMatchOptions().setLlmPlayerConfigs(llmConfigs);
 
         return tOptions;
     }

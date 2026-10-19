@@ -7,6 +7,7 @@ import mage.abilities.common.EntersBattlefieldAbility;
 import mage.abilities.condition.Condition;
 import mage.abilities.costs.*;
 import mage.abilities.costs.common.PayLifeCost;
+import mage.abilities.costs.common.TapSourceCost;
 import mage.abilities.costs.common.WaterbendCost;
 import mage.abilities.costs.common.WaterbendXCost;
 import mage.abilities.costs.mana.*;
@@ -459,6 +460,27 @@ public abstract class AbilityImpl implements Ability {
         if (isMainPartAbility) {
             // adjustX already called before any announces
             game.getContinuousEffects().costModification(this, game);
+        }
+
+        // A permanent tapped as part of this ability's own costs must not be used as a mana
+        // source for the same activation (e.g. Urza's Saga chapter II "{2}, {T}"): pay the
+        // source's own tap cost before the mana costs, so the source is already tapped and
+        // its tap-for-mana abilities fail their own canActivate check during mana payment.
+        // Only relevant while mana costs actually remain to pay (with an empty mana cost there
+        // is no mana payment and no self-pay hazard, so the tap stays on the normal cost path);
+        // only an unwrapped TapSourceCost is paid here — costs hidden in wrappers
+        // (CompositeCost, OrCost) may contain optional/alternative branches whose pay order
+        // must stay with the wrapper (OrCost must not force a tap branch the player didn't choose).
+        if (!getManaCostsToPay().isEmpty()) {
+            for (Cost cost : getCosts()) {
+                if (cost instanceof TapSourceCost && !cost.isPaid()) {
+                    if (!cost.pay(this, game, this, controllerId, noMana, null)) {
+                        logger.debug("activate failed - source tap cost");
+                        return false;
+                    }
+                    break;
+                }
+            }
         }
 
         //20100716 - 601.2f  (noMana is not used here, because mana costs were cleared for this ability before adding additional costs and applying cost modification effects)

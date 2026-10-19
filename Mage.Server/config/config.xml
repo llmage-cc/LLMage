@@ -37,7 +37,7 @@
     mailPassword        - passworf of the used user to send the mail
     mailFromAddress     - sender address
     -->
-    <server serverAddress="0.0.0.0"
+    <server serverAddress="127.0.0.1"
             serverName="mage-server"
             port="17171"
             secondaryBindPort="17179"
@@ -54,7 +54,7 @@
             minPasswordLength="8"
             maxPasswordLength="100"
             maxAiOpponents="15"
-            saveGameActivated="false"
+            saveGameActivated="true"
             authenticationActivated="false"
             googleAccount=""
             mailgunApiKey=""
@@ -64,10 +64,18 @@
             mailUser=""
             mailPassword=""
             mailFromAddress=""
+            llmReasoningEffort="max"
+            llmTranscriptDir="gamelogs"
+            llm2Endpoint=""
+            llm2Model="gemma4:31b-cloud"
+            llm2ReasoningEffort="high"
+            llm2ApiKey=""
     />
     <playerTypes>
         <playerType name="Human" jar="mage-player-human.jar" className="mage.player.human.HumanPlayer"/>
         <playerType name="Computer - mad" jar="mage-player-ai-mad.jar" className="mage.player.ai.ComputerPlayerControllableProxy"/>
+        <playerType name="Computer - LLM" jar="mage-player-llm.jar" className="mage.player.llm.LLMPlayer"/>
+        <playerType name="Computer - P1" jar="mage-player-p1.jar" className="mage.player.p1.P1Player"/>
         <playerType name="Computer - monte carlo" jar="mage-player-ai-mcts.jar" className="mage.player.ai.ComputerPlayerMCTS"/>
         <playerType name="Computer - draftbot" jar="mage-player-ai-draftbot.jar" className="mage.player.ai.ComputerDraftPlayer"/>
     </playerTypes>

@@ -360,7 +360,11 @@ public class BestowTest extends CardTestPlayerBase {
 
         // attacks by Alesha and return card on trigger
         attack(2, playerB, "Alesha, Who Smiles at Death");
-        setChoice(playerB, true); // use trigger
+        // No queued yes/no choice for Alesha's "may pay {W/B}{W/B}" trigger: in this game
+        // state it is unpayable (all 4 Swamps paid Nighthowler's {2}{B}{B} bestow cost),
+        // so since ManaCostImpl.canPay's real verdict DoIfCostPaid skips the
+        // chooseUse prompt entirely — and the payment never succeeded previously either
+        // (pay attempt rolled back), so Pillarfield Ox stays in the graveyard either way.
         addTarget(playerB, "Pillarfield Ox"); // target card to return
 
         castSpell(2, PhaseStep.POSTCOMBAT_MAIN, playerA, "Chandra's Outrage", "Alesha, Who Smiles at Death");

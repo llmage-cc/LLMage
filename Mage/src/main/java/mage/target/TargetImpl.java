@@ -853,7 +853,19 @@ public abstract class TargetImpl implements Target {
         if (player.isHuman() && player.getControllingPlayersUserData(game) != null) { // Ensure that non-strictChooseMode ComputerPlayer will still use this ability
             playerAutoTargetLevel = player.getControllingPlayersUserData(game).getAutoTargetLevel();
         } else {
-            playerAutoTargetLevel = 2;
+            // Bots (MAD/MCTS/LLM): use the NON_FEEL_BAD level (1), not ALL (2) — the same
+            // default the client gives human preferences
+            // (mage.client.constants.Constants.AUTO_TARGET_NON_FEEL_BAD; the constant can't be
+            // referenced here, mage.core must not depend on the client module).
+            // Level 2 skips the own-permanent feel-bad filter in the loop below, so a bot's
+            // removal spell silently auto-targeted its OWN permanent when that was the only
+            // legal target (Dark Banishing auto-killed the caster's own Ephara's Warden
+            // with no target prompt).
+            // Level 1 keeps auto-choose enabled (the `playerAutoTargetLevel > 0` gate below)
+            // while still running the guard; when the guard filters every candidate,
+            // tryToAutoChoose returns null and the player's own chooseTarget path decides —
+            // for the LLM player that surfaces a real target prompt.
+            playerAutoTargetLevel = 1;
         }
 
         // freeze protection on disconnect - auto-choice works for online players only

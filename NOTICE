@@ -1,0 +1,13 @@
+LLMage
+LLMage modifications Copyright (c) 2026 jtb
+
+LLMage is a fork of XMage (https://github.com/magefree/mage),
+Copyright (c) 2010 BetaSteward and contributors.
+
+The LLMage modifications are licensed under the MIT License; see LICENSE.txt.
+The upstream XMage MIT notice is retained there and applies to the code derived
+from XMage.
+
+The client distribution contains a GPL-3.0-or-later component and is conveyed
+under GPL-3.0-or-later; see THIRD-PARTY-NOTICES.md and
+LICENSES/GPL-3.0-or-later.txt.

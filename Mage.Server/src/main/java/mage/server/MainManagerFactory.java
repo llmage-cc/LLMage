@@ -26,6 +26,10 @@ public class MainManagerFactory implements ManagerFactory {
     // TODO: add debug menu like "call client side disconnect in 10 seconds"
     private static final int SERVER_HEALTH_CHECK_TIMEOUT_MINS = 10;
 
+    // Replay sessions older than this (and never explicitly ended) are cleaned up
+    // by the periodic health check to prevent unbounded growth of replaySessions.
+    private static final long REPLAY_SESSION_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+
     private final ConfigSettings configSettings;
     private final ThreadExecutor threadExecutor;
     private final ChatManager chatManager;
@@ -65,6 +69,12 @@ public class MainManagerFactory implements ManagerFactory {
 
         // execute the initialisation block of the relevant manager (they start the executor services)
         startThreads(gamesRoomManager, tableManager, userManager);
+
+        // Client-key LLM bridge: register the
+        // server-side transport so the LLM plugin can route prompt payloads
+        // to the owning browser. No-op for servers without web-adjacent use;
+        // the bridge only activates for seats configured with useClientKey.
+        LLMClientTransport.register(this);
     }
 
     private void startThreads(GamesRoomManagerImpl gamesRoomManager, TableManagerImpl tableManager, UserManagerImpl userManager) {
@@ -78,6 +88,11 @@ public class MainManagerFactory implements ManagerFactory {
                 this.chatManager().checkHealth();
                 this.userManager().checkHealth();
                 this.sessionManager().checkHealth();
+                // Clean up abandoned replay sessions older than REPLAY_SESSION_MAX_AGE_MS
+                int removed = this.replayManager().cleanupStaleSessions(REPLAY_SESSION_MAX_AGE_MS);
+                if (removed > 0) {
+                    logger.info("Replay cleanup: removed " + removed + " stale session(s)");
+                }
             } catch (Exception ex) {
                 logger.fatal("Server health check: catch unknown error - " + ex, ex);
             }

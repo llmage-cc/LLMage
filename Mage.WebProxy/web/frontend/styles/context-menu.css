@@ -1,0 +1,82 @@
+/* ── Shared right-click context menus ──────────────────────────────────────
+   One visual language for every menu rendered via ContextMenuShell
+   (hooks/useContextMenu.tsx): card menus, phase menu, player menu, chat menu.
+   Reuses the deck editor menu's theme tokens (.deck-context-menu). */
+
+.context-menu-panel {
+  background: var(--bg-elevated, #16213e);
+  border: 1px solid var(--border-default, #2a2a3e);
+  border-radius: 6px;
+  padding: 0.25rem 0;
+  min-width: 180px;
+  max-height: 70vh;
+  overflow-y: auto;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+.context-menu-panel .context-menu-title {
+  padding: 0.4rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-subtle, #2a2a3e);
+  margin-bottom: 0.25rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
+.context-menu-panel .context-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  padding: 0.4rem 0.7rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.context-menu-panel .context-menu-item:hover:not(:disabled) {
+  background: var(--bg-active, #243056);
+}
+
+.context-menu-panel .context-menu-item:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.context-menu-panel .context-menu-item.danger {
+  color: var(--color-danger, #e05252);
+}
+
+.context-menu-panel .context-menu-sep {
+  border: none;
+  border-top: 1px solid var(--border-subtle, #2a2a3e);
+  margin: 0.25rem 0;
+}
+
+.context-menu-panel .context-menu-note {
+  padding: 0.25rem 0.7rem 0.4rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* ── Token-art picker inside the shell ──────────────────────────────────────
+   The picker brings its own chrome (`.token-art-menu` in game-renderer.css: a
+   300px card-shaped panel with its own background, border and shadow) and its
+   own scroll bound on the art grid. The shell must therefore contribute ONLY
+   position + z-index — otherwise every panel renders a frame inside a frame
+   with the shell's 70vh scrollbar around it. */
+.context-menu-panel.token-art-menu-panel {
+  padding: 0;
+  min-width: 0;
+  max-height: none;
+  overflow: visible;
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}

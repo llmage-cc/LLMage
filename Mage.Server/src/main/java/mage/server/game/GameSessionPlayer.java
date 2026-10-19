@@ -33,8 +33,8 @@ public class GameSessionPlayer extends GameSessionWatcher {
 
     private final ExecutorService callExecutor;
 
-    public GameSessionPlayer(ManagerFactory managerFactory, Game game, UUID userId, UUID playerId) {
-        super(managerFactory.userManager(), userId, game, true);
+    public GameSessionPlayer(ManagerFactory managerFactory, Game game, UUID userId, UUID playerId, boolean llmChatPublic) {
+        super(managerFactory.userManager(), userId, game, true, llmChatPublic);
         this.userManager = managerFactory.userManager();
         this.callExecutor = managerFactory.threadExecutor().getCallExecutor();
         this.playerId = playerId;
@@ -213,6 +213,9 @@ public class GameSessionPlayer extends GameSessionWatcher {
 
         // full processing for player
         GameView gameView = prepareGameView(game, playerId, userId);
+        // LLM chat visibility is a per-match flag: set it BEFORE the view is
+        // cached, so non-game threads returning the cached view see the same value.
+        gameView.setLlmChatPublic(this.llmChatPublic);
 
         if (GameView.ENABLE_GAME_VIEW_CACHE) {
             this.lastGameView = gameView;
@@ -223,19 +226,13 @@ public class GameSessionPlayer extends GameSessionWatcher {
 
     /**
      * Prepare client-server data. Can be used in real games or in unit tests
-     *
-     * @param game
-     * @param playerId
-     * @param userId   can be null for tests
-     * @return
      */
     public static GameView prepareGameView(Game game, UUID playerId, UUID userId) {
         // game copy do not help with ConcurrentModificationException so ignore it
         Game sourceGame = game;
         GameView gameView = new GameView(sourceGame.getState(), sourceGame, playerId, null);
 
-        // playable info (if opponent under control then show opponent's playable)
-        Player player = sourceGame.getPlayer(playerId); // null for watcher
+        Player player = sourceGame.getPlayer(playerId);
         Player priorityPlayer = sourceGame.getPlayer(sourceGame.getPriorityPlayerId());
         Player controllingPlayer = priorityPlayer == null ? null : sourceGame.getPlayer(priorityPlayer.getTurnControlledBy());
         if (controllingPlayer != null && player == controllingPlayer) {
@@ -244,14 +241,13 @@ public class GameSessionPlayer extends GameSessionWatcher {
 
         processControlledPlayers(sourceGame, player, gameView);
         processWatchedHands(sourceGame, userId, gameView);
-        //TODO: should player who controls another player's turn be able to look at all these cards?
+        processLLMDebugData(sourceGame, gameView);
 
         return gameView;
     }
 
     private static void processControlledPlayers(Game game, Player player, GameView gameView) {
         if (player == null) {
-            // ignore watcher
             return;
         }
         gameView.getOpponentHands().clear();
@@ -265,7 +261,6 @@ public class GameSessionPlayer extends GameSessionWatcher {
 
     public void removeGame() {
         userManager.getUser(userId).ifPresent(user -> user.removeGame(playerId));
-
     }
 
     public UUID getGameId() {
@@ -280,16 +275,13 @@ public class GameSessionPlayer extends GameSessionWatcher {
                         () -> {
                             try {
                                 if (game.getStartTime() == null) {
-                                    // gameController is still waiting to start the game
                                     player.leave();
                                 } else {
-                                    // game was already started
                                     player.quit(game);
                                 }
 
                             } catch (Exception ex) {
                                 if (ex != null) {
-                                    // It seems this can happen if two threads try to end the game at the exact same time (one wins and one ends here)
                                     logger.fatal("Game session game quit exception " + (ex.getMessage() == null ? "null" : ex.getMessage()));
                                     logger.debug("- gameId:" + game.getId() + "  playerId: " + playerId);
                                     if (ex.getCause() != null) {

@@ -32,14 +32,16 @@ import java.util.stream.Collectors;
 public class ChatManagerImpl implements ChatManager {
 
     private static final Logger logger = Logger.getLogger(ChatManagerImpl.class);
-    private static final HashMap<String, String> lastUserMessages = new HashMap<>(); // user->chat+message
+    private static final HashMap<String, String> lastUserMessages = new HashMap<>();
 
     private final ManagerFactory managerFactory;
+    private final BotGameHandler botGameHandler;
     private final ConcurrentHashMap<UUID, ChatSession> chatSessions = new ConcurrentHashMap<>();
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
     public ChatManagerImpl(ManagerFactory managerFactory) {
         this.managerFactory = managerFactory;
+        this.botGameHandler = new BotGameHandler(managerFactory);
     }
 
 
@@ -211,7 +213,9 @@ public class ChatManagerImpl implements ChatManager {
             + "<br/>[Card Name] - Show a highlighted card name"
             + "<br/>\\ignore - shows your ignore list on this server."
             + "<br/>\\ignore [username] - add username to ignore list (they won't be able to chat or join to your game)."
-            + "<br/>\\unignore [username] - remove a username from your ignore list on this server.";
+            + "<br/>\\unignore [username] - remove a username from your ignore list on this server."
+            + "<br/>\\botgame - Create a bot-vs-bot game and spectate it."
+            + "<br/>\\botgame [deck] - Create a bot-vs-bot game with the named deck type.";
 
     final Pattern getCardTextPattern = Pattern.compile("^.card *(.*)");
 
@@ -339,6 +343,10 @@ public class ChatManagerImpl implements ChatManager {
             message += COMMANDS_LIST;
             message += "<br/>Type <font color=green>\\w " + user.getName() + " profanity 0 (or 1 or 2)</font> to use/not use the profanity filter";
             chatSessions.get(chatId).broadcastInfoToUser(user, message);
+            return true;
+        }
+        if (command.equals("BOTGAME") || command.startsWith("BOTGAME ")) {
+            botGameHandler.handle(user, message, chatId);
             return true;
         }
         return false;

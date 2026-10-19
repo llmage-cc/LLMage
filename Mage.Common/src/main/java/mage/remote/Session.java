@@ -16,7 +16,7 @@ import mage.remote.interfaces.Testable;
  *
  * @author noxx
  */
-public interface Session extends ClientData, Connect, GamePlay, GameTypes, ServerState, ChatSession, Feedback, PlayerActions, Replays, Testable {
+public interface Session extends ClientData, Connect, GamePlay, GameTypes, ServerState, ChatSession, Feedback, PlayerActions, Replays, Testable, mage.remote.interfaces.ClientKeys {
 
     void appendJsonLog(ActionData actionData);
 }

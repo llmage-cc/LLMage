@@ -19,6 +19,7 @@
             <outputDirectory>/plugins</outputDirectory>
             <includes>
                 <include>org.mage:mage-player-human</include>
+                <include>org.mage:mage-player-p1</include>
                 <include>org.mage:mage-player-ai-draftbot</include>
                 <include>org.mage:mage-player-ai-mad</include>
                 <include>org.mage:mage-player-ai-mcts</include>
@@ -50,6 +51,7 @@
             <outputDirectory>/lib/</outputDirectory>
             <excludes>
                 <exclude>org.mage:mage-player-human</exclude>
+                <exclude>org.mage:mage-player-p1</exclude>
                 <exclude>org.mage:mage-player-ai-draftbot</exclude>
                 <exclude>org.mage:mage-player-ai-mad</exclude>
                 <exclude>org.mage:mage-player-ai-mcts</exclude>
@@ -87,6 +89,17 @@
                 <include>readme.md</include>
             </includes>
             <outputDirectory>/</outputDirectory>
+        </fileSet>
+        <fileSet>
+            <filtered>false</filtered>
+            <directory>../</directory>
+            <includes>
+                <include>NOTICE</include>
+                <include>THIRD-PARTY-NOTICES.md</include>
+                <include>LICENSES/*.txt</include>
+            </includes>
+            <outputDirectory>/</outputDirectory>
+            <fileMode>0644</fileMode>
         </fileSet>
         <fileSet>
             <filtered>true</filtered>

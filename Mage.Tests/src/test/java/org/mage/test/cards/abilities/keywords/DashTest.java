@@ -1,9 +1,14 @@
 
 package org.mage.test.cards.abilities.keywords;
 
+import mage.abilities.Ability;
+import mage.abilities.SpellAbility;
+import mage.abilities.costs.AlternativeSourceCosts;
 import mage.abilities.keyword.HasteAbility;
+import mage.cards.Card;
 import mage.constants.PhaseStep;
 import mage.constants.Zone;
+import org.junit.Assert;
 import org.junit.Test;
 import org.mage.test.player.TestPlayer;
 import org.mage.test.serverside.base.CardTestPlayerBase;
@@ -165,5 +170,88 @@ public class DashTest extends CardTestPlayerBase {
         assertPermanentCount(playerA, "Ruby Medallion", 1);
         assertPermanentCount(playerA, "Screamreach Brawler", 1);
         assertHandCount(playerA, "Screamreach Brawler", 0);
+    }
+
+    /**
+     * Regression: mana cost payability must be answered for real. Dash is an alternative
+     * cast cost ({1}{R} for Screamreach Brawler); with no red source the alternative cost is
+     * not payable, so {@code canPay} must answer false and the alternative cost must not be
+     * offered as activatable (the old stub returned true for every symbol, so the Dash option
+     * showed up in the cast menu/action list with zero red sources).
+     */
+    @Test
+    public void testDashAlternativeCostNotPayableWithoutRedSource() {
+        addCard(Zone.BATTLEFIELD, playerA, "Wastes", 2);
+        addCard(Zone.HAND, playerA, "Screamreach Brawler");
+
+        runCode("dash not payable without red source", 1, PhaseStep.PRECOMBAT_MAIN, playerA, (info, player, game) -> {
+            Card brawler = null;
+            for (Card card : player.getHand().getCards(game)) {
+                if (card.getName().equals("Screamreach Brawler")) {
+                    brawler = card;
+                }
+            }
+            Assert.assertNotNull(brawler);
+            AlternativeSourceCosts dash = null;
+            for (Ability ability : brawler.getAbilities()) {
+                if (ability instanceof AlternativeSourceCosts) {
+                    dash = (AlternativeSourceCosts) ability;
+                }
+            }
+            Assert.assertNotNull(dash);
+            SpellAbility spell = brawler.getSpellAbility();
+            Assert.assertNotNull(spell);
+            Assert.assertFalse("Dash alternative cost {1}{R} must not be payable with {C}{C} only",
+                    dash.getCosts().canPay(spell, dash, player.getId(), game));
+            Assert.assertFalse("Dash must not be offered as activatable without a red source",
+                    dash.canActivateAlternativeCostsNow(spell, game));
+        });
+        checkPlayableAbility("no red source, no cast", 1, PhaseStep.PRECOMBAT_MAIN, playerA, "Cast Screamreach Brawler", false);
+
+        setStrictChooseMode(true);
+        setStopAt(1, PhaseStep.BEGIN_COMBAT);
+        execute();
+
+        assertHandCount(playerA, "Screamreach Brawler", 1);
+    }
+
+    /**
+     * Regression, positive half: with a red source available the Dash alternative cost is
+     * payable and offered (the real payability answer must not over-restrict either). Two
+     * Mountains pay exactly {1}{R}, so the card is castable ONLY via the Dash alternative cost
+     * here (the regular {2}{R} needs three mana).
+     */
+    @Test
+    public void testDashAlternativeCostPayableWithRedSource() {
+        addCard(Zone.BATTLEFIELD, playerA, "Mountain", 2);
+        addCard(Zone.HAND, playerA, "Screamreach Brawler");
+
+        runCode("dash payable with red source", 1, PhaseStep.PRECOMBAT_MAIN, playerA, (info, player, game) -> {
+            Card brawler = null;
+            for (Card card : player.getHand().getCards(game)) {
+                if (card.getName().equals("Screamreach Brawler")) {
+                    brawler = card;
+                }
+            }
+            Assert.assertNotNull(brawler);
+            AlternativeSourceCosts dash = null;
+            for (Ability ability : brawler.getAbilities()) {
+                if (ability instanceof AlternativeSourceCosts) {
+                    dash = (AlternativeSourceCosts) ability;
+                }
+            }
+            Assert.assertNotNull(dash);
+            SpellAbility spell = brawler.getSpellAbility();
+            Assert.assertNotNull(spell);
+            Assert.assertTrue("Dash alternative cost {1}{R} must be payable with {R}{R}",
+                    dash.getCosts().canPay(spell, dash, player.getId(), game));
+            Assert.assertTrue("Dash must be offered as activatable with a red source",
+                    dash.canActivateAlternativeCostsNow(spell, game));
+        });
+        checkPlayableAbility("dash-only cast offered", 1, PhaseStep.PRECOMBAT_MAIN, playerA, "Cast Screamreach Brawler", true);
+
+        setStrictChooseMode(true);
+        setStopAt(1, PhaseStep.BEGIN_COMBAT);
+        execute();
     }
 }

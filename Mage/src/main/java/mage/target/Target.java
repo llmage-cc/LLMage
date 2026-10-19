@@ -109,6 +109,11 @@ public interface Target extends Copyable<Target>, Serializable {
     /**
      * Returns a set of all possible targets that match the criteria of the implemented Target class.
      * WARNING, it must filter already selected targets by keepValidPossibleTargets call at the end
+     * <p>
+     * The final set is re-validated against the LIVE game state by keepValidPossibleTargets
+     * (see {@link #isCandidateConsistentWithLiveState}) - a candidate whose live zone contradicts
+     * the area this target is declared for must not be offered, even when it was computed before a
+     * state restore/rollback.
      *
      * @param source - can be null
      */
@@ -123,6 +128,11 @@ public interface Target extends Copyable<Target>, Serializable {
 
     /**
      * Keep only valid and not selected targets - must be used inside any possibleTargets implementation
+     * <p>
+     * Candidates are also re-validated against the LIVE game state here
+     * (see {@link #isConsistentWithLiveState}) so a caller can never offer an id whose live
+     * state contradicts the zone this target is declared for - the shape a state
+     * restore/rollback leaves behind.
      */
     default Set<UUID> keepValidPossibleTargets(Set<UUID> possibleTargets, UUID sourceControllerId, Ability source, Game game) {
         // TODO: check target amount in human dialogs - is it allow to select it again
@@ -130,6 +140,7 @@ public interface Target extends Copyable<Target>, Serializable {
         // keep only valid and not selected targets list
         return possibleTargets.stream()
                 .filter(this::notContains)
+                .filter(targetId -> isConsistentWithLiveState(targetId, game))
                 .filter(targetId -> {
                     // non-target allow any
                     if (source == null || source.getSourceId() == null || isNotTarget()) {
@@ -155,6 +166,59 @@ public interface Target extends Copyable<Target>, Serializable {
                     return true;
                 })
                 .collect(Collectors.toSet());
+    }
+
+    /**
+     * Restore-state candidate guard:
+     * a candidate must not contradict the LIVE game state.
+     * <p>
+     * Lifecycle this closes (traced at HEAD): GameImpl.playPriority takes
+     * rollbackBookmarkOnPriorityStart at the top of its priority loop
+     * (GameImpl.java:1835, via ensureRollbackBookmarkOnPriorityStart), runs
+     * checkStateAndTriggered()/checkTriggered() which re-adds
+     * triggered abilities and chooses their targets, and on any exception restores that snapshot
+     * (GameImpl.java:1909) before continuing the loop. Snapshot restore replaces the whole state
+     * (GameState.restore, GameState.java:387+) - including Battlefield and the zone map - so a
+     * caller whose candidate set spans such a boundary (an id captured against an earlier world,
+     * or a card whose zone map entry no longer matches the area the target asks for) must not be
+     * able to offer it again. The plugin-side guard (LLMPlayer.isStaleForZone) covers LLM seats
+     * only and runs after the list is already built; this is the core half, enforced in
+     * keepValidPossibleTargets - the funnel every standard Target implementation routes through
+     * (in-repo overrides call it via super.possibleTargets) - for every caller (human dialogs,
+     * MAD/MCTS bots, AI sims).
+     * <p>
+     * Rule, deliberately narrow - only targets declared for Zone.BATTLEFIELD are checked, and a
+     * candidate is dropped only on positive proof of a contradiction:
+     * <ul>
+     * <li>no live battlefield permanent and nothing entering with that id -&gt; the candidate is
+     * not on the battlefield, whatever it claims (the shape a rollback resurrects, or a
+     * battlefield entry removed without a zone-map update - see the OUTSIDE branch of
+     * PlayerImpl.moveCards);</li>
+     * <li>a live permanent whose zone map entry names a different zone -&gt; the two maps
+     * contradict each other, so the candidate is not trustworthy. Missing zone data (null) is
+     * never treated as a contradiction.</li>
+     * </ul>
+     * A permanent that is mid-entry is accepted (getPermanentEntering): the zone map is only
+     * written when placement finishes, so during that window the permanent is legitimately
+     * targetable while its zone entry still lags. Multi-zone target classes declare a single
+     * zone on purpose while offering ids from other zones (TargetCardInGraveyardBattlefieldOrStack:
+     * GRAVEYARD + battlefield + stack; TargetCardInYourGraveyardOrExile: GRAVEYARD + exile;
+     * TargetSource/TargetSpellOrPermanent/...: Zone.ALL), so a blanket "declared zone must equal
+     * live zone" rule would drop their legitimate candidates; those classes are not part of the
+     * stale-card shape this guard covers and are left untouched.
+     */
+    default boolean isConsistentWithLiveState(UUID id, Game game) {
+        if (id == null || this.getZone() != Zone.BATTLEFIELD) {
+            return true;
+        }
+        if (game.getPermanentEntering(id) != null) {
+            return true; // mid-entry: the zone map is written at the end of placement
+        }
+        if (game.getPermanent(id) == null) {
+            return false; // claimed battlefield, live state has nothing there
+        }
+        Zone liveZone = game.getState().getZone(id);
+        return liveZone == null || liveZone.match(Zone.BATTLEFIELD);
     }
 
     /**

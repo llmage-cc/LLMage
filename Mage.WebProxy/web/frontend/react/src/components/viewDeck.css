@@ -1,0 +1,70 @@
+/* View-deck modal — styles travel with the component (imported from
+   ViewDeckModal.tsx) so this feature adds no shared-CSS footprint. */
+
+.view-deck-modal {
+  max-width: 720px;
+  width: 90vw;
+}
+
+.view-deck-columns {
+  display: flex;
+  gap: 1rem;
+  max-height: 55vh;
+  overflow-y: auto;
+  margin-top: 0.5rem;
+}
+
+.view-deck-column {
+  flex: 1;
+  min-width: 0;
+}
+
+.view-deck-heading {
+  font-weight: bold;
+  margin-bottom: 0.4rem;
+}
+
+.view-deck-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.view-deck-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.view-deck-row:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.view-deck-row-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary, #9aa0b4);
+  min-width: 2.2em;
+  text-align: right;
+}
+
+.view-deck-row-name {
+  color: var(--text-primary, #e0e0e0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.view-deck-row-set {
+  margin-left: auto;
+  color: var(--text-muted, #7a7f93);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.view-deck-empty {
+  color: var(--text-muted, #7a7f93);
+  font-size: 0.85rem;
+}

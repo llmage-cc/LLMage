@@ -20,8 +20,9 @@ public final class PlanarEngineering extends CardImpl {
 
         // Sacrifice two lands. Search your library for four basic land cards, put them onto the battlefield tapped, then shuffle.
         this.getSpellAbility().addEffect(new SacrificeControllerEffect(StaticFilters.FILTER_LANDS, 2, ""));
+        // A stated-quality search is never forced to find cards (CR 701.23b), so a partial find (0..4) is legal
         this.getSpellAbility().addEffect(new SearchLibraryPutInPlayEffect(new TargetCardInLibrary(
-                4, StaticFilters.FILTER_CARD_BASIC_LANDS
+                0, 4, StaticFilters.FILTER_CARD_BASIC_LANDS
         ), true));
     }
 

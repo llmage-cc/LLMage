@@ -23,6 +23,29 @@ public enum PlayerFactory {
     private final EnumMap<PlayerType, Class> playerTypes = new EnumMap<>(PlayerType.class);
 
 
+    /**
+     * Create a player, optionally carrying a per-seat LLMPlayerConfig (the web/desktop
+     * New-Table dialogs attach one to every COMPUTER_LLM seat). Delivery is a ThreadLocal
+     * on LLMPlayerConfig (the config class lives in Mage, visible to BOTH the system and
+     * plugin classloaders — the plugin class itself is not visible to Mage.Server code),
+     * consumed inside LLMPlayer.init() BEFORE context-window detection and the thinking
+     * probe so those dial the seat's endpoint/model, not the server default. Set →
+     * construct → clear in finally: a stuck pending value can never leak to the next
+     * creation on this thread. null/absent pending config = old behavior, byte-for-byte.
+     */
+    public Optional<Player> createPlayer(PlayerType playerType, String name, RangeOfInfluence range, int skill, mage.players.LLMPlayerConfig seatConfig) {
+        if (seatConfig != null) {
+            mage.players.LLMPlayerConfig.setPendingPlayerConfig(seatConfig);
+        }
+        try {
+            return createPlayer(playerType, name, range, skill);
+        } finally {
+            if (seatConfig != null) {
+                mage.players.LLMPlayerConfig.consumePendingPlayerConfig();
+            }
+        }
+    }
+
     public Optional<Player> createPlayer(PlayerType playerType, String name, RangeOfInfluence range, int skill) {
         try {
             Class playerTypeClass = playerTypes.get(playerType);

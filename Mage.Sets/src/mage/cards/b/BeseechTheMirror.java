@@ -92,6 +92,10 @@ class BeseechTheMirrorEffect extends OneShotEffect {
 
                 // If this spell was bargained,
                 if (BargainedCondition.instance.apply(game, source)) {
+                    // Turn the card face-up so the player can see and cast it.
+                    // It was exiled face-down to hide it from opponents, but the
+                    // controller needs to see it to decide whether to cast it.
+                    card.setFaceDown(false, game);
                     // you may cast the exiled card without paying its mana cost if that spell's mana value is 4 or less.
                     CardUtil.castSpellWithAttributesForFree(controller, source, game, card, filter);
                 }

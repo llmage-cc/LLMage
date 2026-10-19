@@ -63,6 +63,8 @@ import mage.util.MultiAmountMessage;
 import mage.util.RandomUtil;
 import mage.watchers.common.AttackedOrBlockedThisCombatWatcher;
 
+import org.mage.test.player.TestLLMPlayer;
+
 /**
  * Basic implementation of testable player
  *
@@ -101,7 +103,7 @@ public class TestPlayer implements Player {
     private PhaseStep AIRealGameControlUntil = null; // enable temporary AI control until some point in time
 
     private final List<PlayerAction> actions = new ArrayList<>();
-    //private final Map<PlayerAction, PhaseStep> actionsToRemoveLater = new HashMap<>(); // remove actions after some step (used for AI commands)
+    //private final Map<PlayerAction, PhaseStep> actionsToRemoveLater = new HashMap<>; // remove actions after some step (used for AI commands)
     private final Map<Integer, HashMap<UUID, ArrayList<PlayerAction>>> rollbackActions = new HashMap<>(); // actions to add after a executed rollback
     private final List<String> choices = new ArrayList<>(); // choices stack for choice
     private final List<String> targets = new ArrayList<>(); // targets stack for choose (it's uses on empty direct target by cast command)
@@ -138,6 +140,12 @@ public class TestPlayer implements Player {
     }
 
     public TestPlayer(TestComputerPlayerMonteCarlo computerPlayer) {
+        this.computerPlayer = computerPlayer;
+        AIPlayer = false;
+        computerPlayer.setTestPlayerLink(this);
+    }
+
+    public TestPlayer(TestLLMPlayer computerPlayer) {
         this.computerPlayer = computerPlayer;
         AIPlayer = false;
         computerPlayer.setTestPlayerLink(this);

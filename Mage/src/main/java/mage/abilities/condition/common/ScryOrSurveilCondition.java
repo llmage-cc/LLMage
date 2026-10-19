@@ -13,6 +13,12 @@ import mage.watchers.common.ScryOrSurveilWatcher;
 public enum ScryOrSurveilCondition implements Condition {
     instance;
 
+    // Pinned 2026-10-02. An enum is serialized by constant NAME, not by class descriptor, so the
+    // JVM reports UID 0 for every enum and this pin can never drift
+    // Declared anyway so the drift gate sees a
+    // deliberate pin instead of an unowned class.
+    private static final long serialVersionUID = 0L;
+
     private static final Hint hint = new ConditionHint(instance);
 
     public static Hint getHint() {

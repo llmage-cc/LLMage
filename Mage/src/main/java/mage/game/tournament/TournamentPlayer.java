@@ -6,6 +6,7 @@ import mage.game.result.ResultProtos.TourneyPlayerProto;
 import mage.game.result.ResultProtos.TourneyQuitStatus;
 import mage.players.Player;
 import mage.players.PlayerType;
+import mage.players.LLMPlayerConfig;
 import mage.util.DeckBuildUtils;
 import mage.util.TournamentUtil;
 import org.apache.log4j.Logger;
@@ -33,6 +34,7 @@ public class TournamentPlayer {
     protected boolean joined = false;
     protected TourneyQuitStatus quitStatus = TourneyQuitStatus.NO_TOURNEY_QUIT;
     protected TournamentPlayer replacedTournamentPlayer;
+    protected LLMPlayerConfig llmPlayerConfig; // per-player LLM overrides from GUI
 
     public TournamentPlayer(Player player, PlayerType playerType) {
         this.player = player;
@@ -208,6 +210,14 @@ public class TournamentPlayer {
 
     public void setReplacedTournamentPlayer(TournamentPlayer player) {
         this.replacedTournamentPlayer = player;
+    }
+
+    public LLMPlayerConfig getLlmPlayerConfig() {
+        return llmPlayerConfig;
+    }
+
+    public void setLlmPlayerConfig(LLMPlayerConfig config) {
+        this.llmPlayerConfig = config;
     }
 
     public TourneyPlayerProto toProto() {

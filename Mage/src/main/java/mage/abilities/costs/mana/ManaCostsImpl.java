@@ -577,12 +577,13 @@ public class ManaCostsImpl<T extends ManaCost> extends ArrayList<T> implements M
 
     @Override
     public boolean canPay(Ability ability, Ability source, UUID controllerId, Game game) {
+        // whole-cost payability, not per-symbol: {1}{R} is one mana combination, so the
+        // symbols must be checked together against the same available mana
+        ManaCosts<ManaCost> costsToCheck = new ManaCostsImpl<>();
         for (T cost : this) {
-            if (!cost.canPay(ability, source, controllerId, game)) {
-                return false;
-            }
+            costsToCheck.add((ManaCost) cost.copy());
         }
-        return true;
+        return ManaCostImpl.canPayManaCost(ability, source, controllerId, game, costsToCheck);
     }
 
     @Override

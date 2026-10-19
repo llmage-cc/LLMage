@@ -19,11 +19,13 @@ import java.util.*;
  * be used to find all the ways to pay a mana cost or all the different mana
  * combinations available to a player
  * <p>
- * TODO: Conditional Mana is not supported yet.
- *       The mana adding removes the condition of conditional mana
+ * Conditional mana: an option that contains conditional mana keeps the conditions
+ * (single ability path: {@link #addMana(Mana)}; multi ability union path:
+ * {@link #unionMana(Mana, Mana)}), so payability checks can apply them per spell/ability
+ * via {@link mage.ConditionalMana#apply}. Plain {@link Mana#add(Mana)} would drop them.
  * <p>
  * A LinkedHashSet is used to get the performance benefits of automatic de-duplication of the Mana
- * to avoid performance issues related with manual de-duplication (see https://github.com/magefree/mage/issues/7710).
+ * to avoid performance issues related with manual de-duplication.
  *
  * @author BetaSteward_at_googlemail.com, JayDi85
  */
@@ -69,11 +71,10 @@ public class ManaOptions extends LinkedHashSet<Mana> {
                     for (Mana triggeredManaVariation : getTriggeredManaVariations(game, ability, netMana)) {
                         SkipAddMana:
                         for (Mana mana : copy) {
-                            Mana newMana = new Mana();
-                            newMana.add(mana);
-                            newMana.add(triggeredManaVariation);
+                            Mana newMana = unionMana(mana, triggeredManaVariation);
                             for (Mana existingMana : this) {
-                                if (existingMana.equalManaValue(newMana)) {
+                                if (existingMana.equalManaValue(newMana)
+                                        && (existingMana instanceof ConditionalMana) == (newMana instanceof ConditionalMana)) {
                                     continue SkipAddMana;
                                 }
                                 Mana moreValuable = Mana.getMoreValuableMana(newMana, existingMana);
@@ -90,6 +91,37 @@ public class ManaOptions extends LinkedHashSet<Mana> {
                 }
             }
         }
+    }
+
+    /**
+     * Builds one union option from existing mana and newly produced mana for the multi ability
+     * path. The union keeps conditional mana: if either side is a {@link ConditionalMana} the
+     * result is a ConditionalMana carrying the conditions of both sides (same guarantee the
+     * single ability path in {@link #addMana(Mana)} gives). A plain {@link Mana#add(Mana)}
+     * would silently drop the condition, so an untapped restricted land (Cavern of Souls,
+     * Secluded Courtyard...) with more than one mana ability would advertise spells as
+     * payable that its conditional mana can never pay for.
+     *
+     * @param mana available mana from other sources
+     * @param toAdd the mana variation produced by this ability
+     * @return union of both values, condition preserving
+     */
+    private static Mana unionMana(final Mana mana, final Mana toAdd) {
+        boolean manaIsConditional = mana instanceof ConditionalMana;
+        boolean addIsConditional = toAdd instanceof ConditionalMana;
+        if (!manaIsConditional && !addIsConditional) {
+            Mana newMana = new Mana();
+            newMana.add(mana);
+            newMana.add(toAdd);
+            return newMana;
+        }
+        // keep the condition of the newly produced mana and merge the one of the other side
+        // (ConditionalMana.add only merges conditions, it never drops them)
+        ConditionalMana newMana = addIsConditional
+                ? ((ConditionalMana) toAdd).copy()
+                : ((ConditionalMana) mana).copy();
+        newMana.add(addIsConditional ? mana : toAdd);
+        return newMana;
     }
 
     private void addManaVariation(List<Mana> netManas, ActivatedManaAbilityImpl ability, Game game) {

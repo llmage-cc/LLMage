@@ -133,6 +133,18 @@ public class Session {
             sendErrorMessageToClient(returnMessage);
             return returnMessage;
         }
+        // Self-registration kill-switch (public-hosting security): XMage generates
+        // the password and sends it by email, so with no mail transport configured
+        // the account is created BEFORE the mail send can fail — a public server
+        // would accumulate junk/squatted accounts with undeliverable passwords.
+        // Fail Fast: refuse registration entirely when mail is not configured.
+        if (managerFactory.configSettings().getMailUser().isEmpty()
+                && managerFactory.configSettings().getMailgunApiKey().isEmpty()) {
+            String returnMessage = "Registration is disabled on this server. Ask the server admin for an account.";
+            logger.warn("Rejected registration for '" + userName + "': mail transport not configured (registration kill-switch)");
+            sendErrorMessageToClient(returnMessage);
+            return returnMessage;
+        }
         synchronized (AuthorizedUserRepository.getInstance()) {
             // name
             String returnMessage = validateUserName(userName);

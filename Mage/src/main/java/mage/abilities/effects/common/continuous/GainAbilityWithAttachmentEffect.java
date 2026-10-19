@@ -21,7 +21,6 @@ import mage.target.Targets;
 import mage.target.targetpointer.FixedTarget;
 
 import java.util.Collections;
-import java.util.function.Consumer;
 
 /**
  * @author TheElk801
@@ -32,7 +31,7 @@ public class GainAbilityWithAttachmentEffect extends ContinuousEffectImpl {
     private final Targets targets = new Targets();
     private final Costs<Cost> costs = new CostsImpl<>();
     protected final UseAttachedCost useAttachedCost;
-    private final Consumer<ActivatedAbility> consumer;
+    private final SerializableAbilityConsumer consumer;
 
     public GainAbilityWithAttachmentEffect(String rule, Effect effect, Target target, UseAttachedCost attachedCost, Cost... costs) {
         this(rule, new Effects(effect), new Targets(target), attachedCost, costs);
@@ -42,7 +41,7 @@ public class GainAbilityWithAttachmentEffect extends ContinuousEffectImpl {
         this(rule, effects, targets, attachedCost, null, costs);
     }
 
-    public GainAbilityWithAttachmentEffect(String rule, Effects effects, Targets targets, UseAttachedCost attachedCost, Consumer<ActivatedAbility> consumer, Cost... costs) {
+    public GainAbilityWithAttachmentEffect(String rule, Effects effects, Targets targets, UseAttachedCost attachedCost, SerializableAbilityConsumer consumer, Cost... costs) {
         super(Duration.WhileOnBattlefield, Layer.AbilityAddingRemovingEffects_6, SubLayer.NA, Outcome.AddAbility);
         this.staticText = rule;
         this.effects.addAll(effects);

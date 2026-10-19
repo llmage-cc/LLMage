@@ -16,18 +16,30 @@ import mage.target.TargetPermanent;
 import mage.target.common.TargetCardInHand;
 import mage.util.CardUtil;
 
+import java.io.Serializable;
 import java.util.*;
 import java.util.stream.Collectors;
 
 /**
  * @author TheElk801
  */
-public class BeholdType {
+public class BeholdType implements Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     private static Map<SubType, BeholdType> typeMap = new HashMap<>();
 
     public static BeholdType getBeholdType(SubType subType) {
         return typeMap.computeIfAbsent(subType, s -> new BeholdType(s));
+    }
+
+    /**
+     * Serialization hook. {@link #typeMap} is a canonical-instance cache, so a deserialized
+     * BeholdType must resolve back to the cached instance for its SubType instead of a fresh
+     * object with broken identity (callers compare BeholdType instances by identity).
+     */
+    private Object readResolve() throws java.io.ObjectStreamException {
+        return getBeholdType(subType);
     }
 
     private final FilterPermanent filterPermanent;

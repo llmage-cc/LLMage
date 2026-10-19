@@ -18,6 +18,13 @@ import mage.game.tournament.TournamentPlayer;
  */
 public class MatchView implements Serializable {
 
+    // Official-server wire compat: upstream 1.4.61 computes
+    // -294697495608883183 for this class shape; our fork-added fields
+    // (playerList) ride along harmlessly under a matching suid — with the
+    // unpinned (shape-derived) suid, reading a stock server's MatchView
+    // (replay browser getFinishedMatches) throws InvalidClassException.
+    private static final long serialVersionUID = -294697495608883183L;
+
     private final UUID tableId;
     private UUID matchId;
     private String matchName;
@@ -33,6 +40,8 @@ public class MatchView implements Serializable {
     private boolean replayAvailable;
     private final boolean isTournament;
     private boolean rated;
+    /** Structured per-player rows for the web replay browser (desktop ignores). */
+    private final List<MatchPlayerView> playerList = new ArrayList<>();
 
     public MatchView(Table table) {
         this.tableId = table.getId();
@@ -93,6 +102,13 @@ public class MatchView implements Serializable {
         this.endTime = match.getEndTime();
         this.replayAvailable = match.isReplayAvailable();
         this.rated = match.getOptions().isRated();
+        for (MatchPlayer matchPlayer : match.getPlayers()) {
+            playerList.add(new MatchPlayerView(
+                    matchPlayer.getName(),
+                    matchPlayer.getWins(),
+                    matchPlayer.hasQuit(),
+                    matchPlayer.getDeck() != null ? matchPlayer.getDeck().getName() : null));
+        }
     }
 
     // used for tournaments
@@ -131,6 +147,13 @@ public class MatchView implements Serializable {
         this.endTime = table.getTournament().getEndTime();
         this.replayAvailable = false;
         this.rated = table.getTournament().getOptions().getMatchOptions().isRated();
+        for (TournamentPlayer tPlayer : table.getTournament().getPlayers()) {
+            playerList.add(new MatchPlayerView(
+                    tPlayer.getPlayer().getName(),
+                    tPlayer.getPoints(),
+                    false,
+                    tPlayer.getDeck() != null ? tPlayer.getDeck().getName() : null));
+        }
     }
 
     public UUID getMatchId() {
@@ -187,5 +210,14 @@ public class MatchView implements Serializable {
 
     public boolean isRated() {
         return rated;
+    }
+
+    /**
+     * Structured per-player rows (name, match wins, quit, deck name) for the
+     * web replay browser. Empty for tournament matches — their display strings
+     * remain the only summary there.
+     */
+    public List<MatchPlayerView> getPlayerList() {
+        return playerList;
     }
 }

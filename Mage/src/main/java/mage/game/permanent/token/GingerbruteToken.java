@@ -18,6 +18,12 @@ import mage.filter.predicate.mageobject.AbilityPredicate;
  * @author muz
  */
 public final class GingerbruteToken extends TokenImpl {
+    // Pinned 2026-10-02 against silent UID drift orphaning the .game replay corpus
+    // the third instance is
+    // This is the value this class
+    // computed when the pin was added: it FREEZES the wire UID, so later field/method/superclass
+    // edits no longer change it. A deliberate format break must re-derive it explicitly.
+    private static final long serialVersionUID = -2596303535555184025L;
 
     private static final FilterCreaturePermanent filter = new FilterCreaturePermanent("except by creatures with haste");
 

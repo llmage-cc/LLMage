@@ -1,0 +1,81 @@
+/* Hint + explanation surfaces — owned by the hints/tooltips change.
+ *
+ * Imported from src/main.tsx so it rides with the component tree in both dev and the
+ * production bundle, and needs no edit to index.html (which the parent's build step
+ * regenerates).
+ *
+ * Coordinates: both surfaces are position:fixed inside the zoomed root, so their
+ * left/top are ROOT CSS px (see utils/viewport.ts) — the components divide the
+ * measured rect by rootZoom() before writing the style.
+ */
+
+/* ── Shared tooltip bubble (hover + focus explanations) ───────────────────── */
+.xm-tooltip {
+  position: fixed;
+  z-index: 4000; /* above every popup (max in-tree z-index is 3000) */
+  max-width: 320px;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border-default, #2e2e38);
+  border-radius: 6px;
+  background: var(--bg-elevated, #232329);
+  color: var(--text-primary, #f0f0f2);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
+  /* The bubble must never eat the click that the button underneath is waiting for. */
+  pointer-events: none;
+  white-space: normal;
+}
+
+/* ── Onboarding tip (first games only) ────────────────────────────────────── */
+.xm-hint {
+  position: fixed;
+  /* Above popups, below nothing else that matters; the tip is information, not a modal. */
+  z-index: 3500;
+  max-width: 340px;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--accent-primary, #e0405b);
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: var(--bg-elevated, #232329);
+  color: var(--text-primary, #f0f0f2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+/* The controls are the ONLY interactive part — the box's position never covers the
+ * element the tip points at (HintLayer places it beside/above, see placement()). */
+.xm-hint-controls {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.55rem;
+  align-items: center;
+}
+
+.xm-hint-btn {
+  padding: 0.25rem 0.5rem;
+  border-radius: 5px;
+  border: 1px solid var(--border-default, #2e2e38);
+  background: var(--bg-surface, #17171c);
+  color: var(--text-primary, #f0f0f2);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.xm-hint-btn:hover {
+  border-color: var(--accent-primary, #e0405b);
+}
+
+.xm-hint-btn-primary {
+  background: var(--accent-primary, #e0405b);
+  border-color: var(--accent-primary, #e0405b);
+  color: #fff;
+}
+
+.xm-hint-step {
+  margin-left: auto;
+  color: var(--text-muted, #808088);
+  font-size: 0.68rem;
+  white-space: nowrap;
+}

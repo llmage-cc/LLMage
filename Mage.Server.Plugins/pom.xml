@@ -40,6 +40,8 @@
         <module>Mage.Player.AIMCTS</module>
         <module>Mage.Player.AI.DraftBot</module>
         <module>Mage.Player.Human</module>
+        <module>Mage.Player.LLM</module>
+        <module>Mage.Player.P1</module>
         <module>Mage.Tournament.BoosterDraft</module>
         <module>Mage.Tournament.Constructed</module>
         <module>Mage.Tournament.Sealed</module>

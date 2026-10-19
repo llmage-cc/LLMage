@@ -1,0 +1,30 @@
+/* Phase 1 minimal styles — just enough for connect/lobby/game views.
+   The full CSS files (base.css, game-renderer.css, layout.css, popups.css)
+   are loaded from the parent directory at production build time.
+   During dev, Vite serves them via the publicDir. */
+
+:root {
+  --bg-color: #1a1a2e;
+  --text-color: #e0e0e0;
+  --accent-color: #0f3460;
+  --error-color: #e74c3c;
+  --success-color: #27ae60;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg-color);
+  color: var(--text-color);
+  overflow: hidden;
+}
+
+#root {
+  width: var(--vw);
+  height: var(--vh);
+}

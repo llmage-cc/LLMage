@@ -44,6 +44,44 @@
             <xs:attribute name="mailUser" type="xs:string" use="optional"/>
             <xs:attribute name="mailPassword" type="xs:string" use="optional"/>
             <xs:attribute name="mailFromAddress" type="xs:string" use="optional"/>
+            <xs:attribute name="llmReasoningEffort" type="xs:string" use="optional">
+                <xs:annotation>
+                    <xs:documentation>
+                        LLM reasoning effort level: "low", "medium", "high", or "max" (default: "max").
+                        Only effective when thinking is enabled in LLMConfig.
+                    </xs:documentation>
+                </xs:annotation>
+            </xs:attribute>
+            <xs:attribute name="llmTranscriptDir" type="xs:string" use="optional">
+                <xs:annotation>
+                    <xs:documentation>
+                        Directory to dump full LLM conversation transcripts for debugging.
+                        Each game creates a timestamped .txt file containing every exchange.
+                    </xs:documentation>
+                </xs:annotation>
+            </xs:attribute>
+
+            <!-- Second LLM configuration (for LLM vs LLM games via botgame llm2 flag) -->
+            <xs:attribute name="llm2Endpoint" type="xs:string" use="optional">
+                <xs:annotation>
+                    <xs:documentation>API endpoint for second LLM (empty = use primary endpoint).</xs:documentation>
+                </xs:annotation>
+            </xs:attribute>
+            <xs:attribute name="llm2Model" type="xs:string" use="optional">
+                <xs:annotation>
+                    <xs:documentation>Model name for second LLM (empty = use primary model).</xs:documentation>
+                </xs:annotation>
+            </xs:attribute>
+            <xs:attribute name="llm2ReasoningEffort" type="xs:string" use="optional">
+                <xs:annotation>
+                    <xs:documentation>Reasoning effort for second LLM (empty = use primary setting).</xs:documentation>
+                </xs:annotation>
+            </xs:attribute>
+            <xs:attribute name="llm2ApiKey" type="xs:string" use="optional">
+                <xs:annotation>
+                    <xs:documentation>API key for second LLM (empty = use primary key).</xs:documentation>
+                </xs:annotation>
+            </xs:attribute>
         </xs:complexType>
     </xs:element>
 

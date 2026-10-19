@@ -1,0 +1,330 @@
+/* lobby chat + users (stock parity) */
+
+/* ── Right-hand lobby column: users panel on top, chat below ── */
+.lobby-right-col {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+    height: 100%;
+}
+
+/* ── Users panel (desktop parity: narrow users/flags column) ── */
+.lobby-users {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 8px;
+    overflow: hidden;
+    flex: 0 1 auto;
+    max-height: 45%;
+}
+
+.lobby-users-header {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-default);
+}
+
+.lobby-users-list {
+    overflow-y: auto;
+    flex: 1 1 auto;
+}
+
+.lobby-users-empty {
+    padding: 0.6rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.lobby-users-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.15rem 0.6rem;
+    font-size: 0.75rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
+.lobby-users-row.self {
+    color: var(--accent-primary);
+    font-weight: 700;
+}
+
+.lobby-users-row:nth-child(even) {
+    background: var(--bg-elevated);
+}
+
+.lobby-users-flag {
+    flex: 0 0 auto;
+    font-size: 0.7rem;
+}
+
+.lobby-users-name {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* "you" tag on the connected user's own row (the row also carries .self and
+   data-self). Pairs with the row highlight so a user can find themselves — the
+   bug-hunt could not tell which row was theirs. */
+.lobby-users-you {
+    flex: 0 0 auto;
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--accent-primary);
+    border: 1px solid var(--accent-primary);
+    border-radius: 3px;
+    padding: 0 0.25rem;
+    line-height: 1.2;
+}
+
+.lobby-users-ping {
+    flex: 0 0 auto;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    /* Push the ping to the row's right edge — the server text starts with
+       spaces that collapse, and live QA (2026-09-20) read name+ping as one run. */
+    margin-left: auto;
+    padding-left: 0.5rem;
+    /* Right-align the figure so a changing digit count ("1ms" → "12ms") does
+       not jitter the row width; a stable column also stops the flicker reading
+       as layout churn (bug-hunt: ping "flickering 1ms / 3ms"). */
+    text-align: right;
+    min-width: 2.5rem;
+}
+
+/* ── Chat panel (desktop parity: Talk | System tabs + message list + input) ── */
+.lobby-chat {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 8px;
+    overflow: hidden;
+    flex: 1 1 auto;
+    min-height: 180px;
+}
+
+.lobby-chat-tabs {
+    display: flex;
+    gap: 2px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-default);
+}
+
+.lobby-chat-tab {
+    padding: 0.3rem 0.9rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+}
+
+.lobby-chat-tab.active {
+    color: var(--text-primary);
+    background: var(--bg-surface);
+    border-bottom: 2px solid var(--accent-primary);
+}
+
+.lobby-chat-list {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.75rem;
+    line-height: 1.45;
+}
+
+.lobby-chat-empty {
+    color: var(--text-muted);
+    padding: 0.4rem 0.2rem;
+}
+
+.lobby-chat-entry {
+    word-break: break-word;
+}
+
+.lobby-chat-from {
+    font-weight: 600;
+    color: var(--accent-primary);
+}
+
+.lobby-chat-whisper_from .lobby-chat-from,
+.lobby-chat-whisper_to .lobby-chat-from {
+    color: var(--accent-success);
+    font-style: italic;
+}
+
+.lobby-chat-user_info .lobby-chat-from,
+.lobby-chat-status .lobby-chat-from,
+.lobby-chat-game .lobby-chat-from {
+    color: var(--text-muted);
+}
+
+.lobby-chat-input-row {
+    display: flex;
+    gap: 0.4rem;
+    padding: 0.4rem;
+    border-top: 1px solid var(--border-default);
+}
+
+.lobby-chat-input-row input {
+    flex: 1;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    color: var(--text-primary);
+    padding: 0.35rem 0.5rem;
+    font-size: 0.8rem;
+    box-sizing: border-box;
+}
+
+.lobby-chat-input-row input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+/* ── Message of the Day strip (desktop parity: blue bottom bar) ── */
+.lobby-motd {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.35rem 0.8rem;
+    background: #1a3a6b;
+    border-top: 1px solid #2a5298;
+    color: #dce8ff;
+    font-size: 0.78rem;
+    /* Bottom-anchored, space-reserving flex item (not fixed): it can never
+       overlay the content above it, and `margin-top: auto` pushes it to the
+       bottom of the lobby column regardless of the shell height. The strip
+       lives only in LobbyView (grep: MotdStrip is mounted there alone) — the
+       game/replay views never render it. */
+    margin-top: auto;
+    flex: 0 0 auto;
+}
+
+.lobby-motd-label {
+    font-weight: 700;
+    flex: 0 0 auto;
+}
+
+.lobby-motd-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Two-column lobby shell (LobbyView integration) ──
+   App-shell row: takes ALL remaining viewport height (header and MOTD strip
+   are fixed rows).lobby-main scrolls internally, the right rail
+   (users + chat) stretches edge to edge like the stock desktop lobby. The
+   rail width and the users/chat split are user-resizable via the two
+   .lobby-resize-* handles (driven from LobbyView.tsx, GameView's rail-drag
+   pattern). Stacks below 900px viewport. */
+.lobby-columns {
+    display: flex;
+    gap: 0;
+    align-items: stretch;
+    flex: 1;
+    min-height: 0;
+}
+
+.lobby-columns .lobby-main {
+    /* flex-basis 0: the split is width-driven by the rail, never by this
+       column's content size (a content-based basis would flex-shrink the
+       rail below its dragged width whenever the games list is wide). */
+    flex: 1 1 0;
+    min-width: 0;
+    overflow-y: auto;
+    /* Room for the drag handle that sits between the columns. */
+    padding-right: 0.75rem;
+}
+
+/* Vertical handle: games list ↔ rail (width drag, col-resize). */
+.lobby-columns .lobby-resize-w {
+    flex: 0 0 calc(6px * var(--ui-scale, 1));
+    align-self: stretch;
+    border-radius: 3px;
+}
+
+.lobby-columns .lobby-right-col {
+    /* Width comes from LobbyView's drag state (--lobby-rail-w, persisted
+       xmage-lobby-rail-w). flex-shrink 0: the user-sized rail is never
+       squeezed by the games list's content — the main column scrolls. */
+    flex: 0 0 var(--lobby-rail-w, 280px);
+    min-width: 160px;
+    max-width: 85%;
+    /* Full column height — the old sticky strip capped this at --vh - 4rem
+       and started below the header, wasting the rail's top half. */
+    align-self: stretch;
+    position: static;
+}
+
+/* Users pane wrapper: share of the rail height comes from LobbyView's drag
+   state (--lobby-users-h, persisted xmage-lobby-users-h). The wrapper (not
+   .lobby-users itself) is the flex child so the handle sits between panes. */
+.lobby-right-col .lobby-users-wrap {
+    display: flex;
+    flex-direction: column;
+    flex: 0 1 var(--lobby-users-h, 30%);
+    min-height: 3.5rem;
+    max-height: 85%;
+}
+
+.lobby-right-col .lobby-users {
+    flex: 1;
+    max-height: none;
+    min-height: 0;
+}
+
+.lobby-right-col .lobby-resize-h {
+    flex: 0 0 auto;
+}
+
+.lobby-right-col .lobby-chat {
+    /* Chat takes the REST of the rail (users % + handle + chat = 100%). */
+    flex: 1 1 0;
+    min-height: 6rem;
+}
+
+@media (max-width: 900px) {
+    .lobby-columns {
+        flex-direction: column;
+        overflow-y: auto;
+    }
+
+    .lobby-columns .lobby-main {
+        overflow-y: visible;
+        padding-right: 0;
+    }
+
+    .lobby-columns .lobby-resize-w {
+        display: none;
+    }
+
+    .lobby-columns .lobby-right-col {
+        position: static;
+        flex: 0 0 auto;
+        width: auto;
+        max-height: 320px;
+    }
+
+    .lobby-right-col .lobby-resize-h {
+        display: none;
+    }
+
+    .lobby-right-col .lobby-users-wrap {
+        flex: 0 1 auto;
+        max-height: 45%;
+    }
+}

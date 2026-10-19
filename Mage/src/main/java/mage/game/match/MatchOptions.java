@@ -8,6 +8,7 @@ import mage.constants.RangeOfInfluence;
 import mage.constants.SkillLevel;
 import mage.game.mulligan.MulliganType;
 import mage.game.result.ResultProtos;
+import mage.players.LLMPlayerConfig;
 import mage.players.PlayerType;
 
 import java.io.Serializable;
@@ -17,6 +18,13 @@ import java.util.*;
  * @author BetaSteward_at_googlemail.com
  */
 public class MatchOptions implements Serializable {
+
+    // Official-server wire compat: upstream 1.4.61 computes
+    // -6545123451908010934; our llmPlayerConfigs/llmChatPublic fields ride along
+    // harmlessly under a matching suid — the proxy SENDS MatchOptions on
+    // create_table/create_tournament, and an unpinned mismatch makes stock
+    // servers reject the call when deserializing our argument.
+    private static final long serialVersionUID = -6545123451908010934L;
 
     protected String name;
     protected MultiplayerAttackOption attackOption = MultiplayerAttackOption.LEFT;
@@ -36,12 +44,19 @@ public class MatchOptions implements Serializable {
     protected SkillLevel skillLevel = SkillLevel.CASUAL;
     protected boolean rollbackTurnsAllowed;
     protected boolean spectatorsAllowed;
+    /** When true, LLM chat is visible to opponents and spectators during live play.
+     *  When false (default) each seated player sees only their own LLM's chat live;
+     *  replays always carry the full LLM record regardless of this flag. */
+    protected boolean llmChatPublic;
     protected boolean planeChase;
     protected int quitRatio;
     protected int minimumRating;
     protected int edhPowerLevel;
     protected boolean rated;
     protected Set<String> bannedUsers = new HashSet<>();
+    protected List<LLMPlayerConfig> llmPlayerConfigs = new ArrayList<>(); // per-seat LLM overrides from GUI
+    protected boolean skipInitShuffling; // test mode: no initial shuffle (the library keeps the submitted order)
+    protected boolean skipStartingPlayerChoice; // test mode: no random draw or starting-player ask (the first player starts)
 
     protected MatchTimeLimit matchTimeLimit = MatchTimeLimit.NONE; // total time limit for priority
     protected MatchBufferTime matchBufferTime = MatchBufferTime.NONE; // additional/buffer time limit for each priority before real time ticking starts
@@ -205,6 +220,14 @@ public class MatchOptions implements Serializable {
         this.spectatorsAllowed = spectatorsAllowed;
     }
 
+    public boolean isLlmChatPublic() {
+        return llmChatPublic;
+    }
+
+    public void setLlmChatPublic(boolean llmChatPublic) {
+        this.llmChatPublic = llmChatPublic;
+    }
+
     public boolean isPlaneChase() {
         return planeChase;
     }
@@ -251,6 +274,30 @@ public class MatchOptions implements Serializable {
 
     public void setBannedUsers(Set<String> bannedUsers) {
         this.bannedUsers = bannedUsers;
+    }
+
+    public List<LLMPlayerConfig> getLlmPlayerConfigs() {
+        return llmPlayerConfigs;
+    }
+
+    public void setLlmPlayerConfigs(List<LLMPlayerConfig> llmPlayerConfigs) {
+        this.llmPlayerConfigs = llmPlayerConfigs;
+    }
+
+    public boolean isSkipInitShuffling() {
+        return skipInitShuffling;
+    }
+
+    public void setSkipInitShuffling(boolean skipInitShuffling) {
+        this.skipInitShuffling = skipInitShuffling;
+    }
+
+    public boolean isSkipStartingPlayerChoice() {
+        return skipStartingPlayerChoice;
+    }
+
+    public void setSkipStartingPlayerChoice(boolean skipStartingPlayerChoice) {
+        this.skipStartingPlayerChoice = skipStartingPlayerChoice;
     }
 
     public ResultProtos.MatchOptionsProto toProto() {

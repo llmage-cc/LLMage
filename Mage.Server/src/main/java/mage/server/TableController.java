@@ -20,6 +20,8 @@ import mage.game.tournament.TournamentOptions;
 import mage.game.tournament.TournamentPlayer;
 import mage.players.Player;
 import mage.players.PlayerType;
+import mage.players.LLMPlayerConfig;
+import mage.server.LLMPlayerHelper;
 import mage.server.game.GameFactory;
 import mage.server.game.PlayerFactory;
 import mage.server.managers.ManagerFactory;
@@ -44,6 +46,74 @@ public class TableController {
 
     private static final Logger logger = Logger.getLogger(TableController.class);
 
+    /**
+     * Sideboard timeout for AI-only matches (LLM vs LLM, bot games).
+     * LLM sideboarding can take 5+ minutes per player at max reasoning effort.
+     * 30 minutes gives plenty of room for 2 LLM players to sideboard sequentially.
+     */
+    private static final int AI_SIDEBOARD_TIME = 30 * 60; // 30 minutes
+
+    /**
+     * Max consecutive drawn games before an all-AI match is force-closed by
+     * {@link #endGameAndStartNextGame()} instead of starting the next game.
+     *
+     * Why a consecutive-draw cap and not a wall-clock or games-played cap:
+     * - A draw is the only result that awards no win, so a match where every
+     *   game ends in an instant draw (degenerate tiny decks that deck out
+     *   immediately) can NEVER satisfy winsNeeded and restarts games forever.
+     *   Measured live: one cycle every ~90 s, each firing real LLM API calls,
+     *   continuing even after the botgame runner process died.
+     *   At ~90 s per cycle, capping at 5 draws bounds unattended burn to
+     *   roughly 8 minutes instead of indefinitely.
+     * - Legitimate all-AI matches essentially never produce 5 straight draws,
+     *   so this cap stays invisible in normal play; a wall-clock alternative
+     *   would kill legitimate long LLM matches (LLM games legitimately run
+     *   many minutes per game).
+     * - Human matches are excluded ENTIRELY by the allAI gate (same predicate
+     *   as sideboard()): 5 draws in a row is vanishingly rare but possible
+     *   for real players, and their table must never be force-closed.
+     */
+    private static final int MAX_CONSECUTIVE_DRAWS = 5;
+
+    /**
+     * How long {@link #submitDeck(UUID, DeckCardLists)} will HOLD an early
+     * between-games submit while the table is still transitioning into
+     * SIDEBOARDING (see the long note at the state gate). The hold runs OUTSIDE
+     * this controller's monitor — the game thread takes that monitor
+     * ({@code setupTimeout}/{@code cancelTimeout}, both synchronized) in the
+     * middle of the very transition we are waiting for, so holding it would
+     * deadlock until the deadline. 5 s is generous headroom for a slow
+     * game-save on the just-ended game; past it the submit is refused with a
+     * real reason rather than hanging the RPC caller indefinitely.
+     */
+    private static final long SIDEBOARD_SUBMIT_HOLD_MS = 5_000;
+
+    /** Poll interval of the early-submit hold. */
+    private static final long SIDEBOARD_SUBMIT_POLL_MS = 20;
+
+    /**
+     * Players whose SIDEBOARD prompt has been DELIVERED in the current
+     * sideboarding phase (filled by the {@link TableEvent.EventType#SIDEBOARD}
+     * listener as {@code ccSideboard} goes out, cleared when a phase starts in
+     * {@link #sideboard()}).
+     *
+     * <p>Two uses:
+     * <ul>
+     *   <li>the early-submit hold waits for the player's OWN prompt, not merely
+     *       the table state flip — {@code table.sideboard()} flips the state at
+     *       the top of {@link #sideboard()}, while the per-player prompt (and
+     *       the {@code MatchPlayer.setSideboarding()} that clears the
+     *       done-flag) only fires later inside {@code MatchImpl.sideboard()};
+     *       applying a submit in between would be clobbered by that clear and
+     *       the seat would hang until the auto-sideboard timer;</li>
+     *   <li>it distinguishes a genuinely-late submit (prompt already delivered
+     *       earlier in this phase, table has moved on) from a legitimately
+     *       early one (prompt not yet delivered), so late submits keep failing
+     *       fast instead of being held for the full deadline.</li>
+     * </ul>
+     */
+    private final Set<UUID> sideboardPromptedPlayers = ConcurrentHashMap.newKeySet();
+
     private final ManagerFactory managerFactory;
     private final UUID userId; // table owner/creator (null in tourney's table)
     private final UUID chatId;
@@ -57,6 +127,15 @@ public class TableController {
 
     private ScheduledFuture<?> futureTimeout;
     protected final ScheduledExecutorService timeoutExecutor;
+
+    /**
+     * Consecutive-draw streak in this table's match, incremented by
+     * {@link #endGameAndStartNextGame()} whenever a just-ended game was a draw.
+     * Reset to 0 on any non-draw game. Only ever compared against
+     * {@link #MAX_CONSECUTIVE_DRAWS} for all-AI matches. Volatile because
+     * endGame() callbacks arrive on game listener threads.
+     */
+    private volatile int consecutiveDraws = 0;
 
     public TableController(ManagerFactory managerFactory, UUID roomId, UUID userId, MatchOptions options) {
         this.managerFactory = managerFactory;
@@ -74,6 +153,10 @@ public class TableController {
         this.table = new Table(roomId, options.getGameType(), options.getName(), controllerName, DeckValidatorFactory.instance.createDeckValidator(options.getDeckType()),
                 options.getPlayerTypes(), new TableRecorderImpl(managerFactory.userManager()), match, options.getBannedUsers(), options.isPlaneChase());
         this.chatId = managerFactory.chatManager().createTableChatSession(table);
+
+        // Wire per-seat LLM config overrides from MatchOptions into Seat objects
+        wireLlmConfigs();
+
         init();
     }
 
@@ -81,6 +164,7 @@ public class TableController {
         this.managerFactory = managerFactory;
         this.timeoutExecutor = managerFactory.threadExecutor().getTimeoutExecutor();
         this.userId = userId;
+        this.options = options.getMatchOptions();
         tournament = TournamentFactory.instance.createTournament(options.getTournamentType(), options);
         if (userId != null) {
             Optional<User> user = managerFactory.userManager().getUser(userId);
@@ -96,6 +180,9 @@ public class TableController {
         table = new Table(roomId, options.getTournamentType(), options.getName(), controllerName, DeckValidatorFactory.instance.createDeckValidator(options.getMatchOptions().getDeckType()),
                 options.getPlayerTypes(), new TableRecorderImpl(managerFactory.userManager()), tournament, options.getMatchOptions().getBannedUsers(), options.isPlaneChase());
         chatId = managerFactory.chatManager().createTableChatSession(table);
+
+        // Wire per-seat LLM config overrides from TournamentOptions into Seat objects
+        wireLlmConfigs();
     }
 
     private void init() {
@@ -115,12 +202,25 @@ public class TableController {
     }
 
     public synchronized boolean joinTournament(UUID userId, String name, PlayerType playerType, int skill, DeckCardLists deckList, String password) throws GameException {
+        try {
+            return doJoinTournament(userId, name, playerType, skill, deckList, password);
+        } catch (GameException ge) {
+            throw ge;
+        } catch (Throwable t) {
+            logger.error("joinTournament unexpected error for player " + name + " type=" + playerType + ": " + t.getClass().getName() + " " + t.getMessage(), t);
+            throw new GameException("Unexpected error joining tournament: " + t.getMessage());
+        }
+    }
+
+    private synchronized boolean doJoinTournament(UUID userId, String name, PlayerType playerType, int skill, DeckCardLists deckList, String password) throws GameException {
         if (table.getState() != TableState.WAITING) {
+            logger.debug("joinTournament rejected: table state is " + table.getState() + " (expected WAITING) for player " + name);
             return false;
         }
 
         Seat seat = table.getNextAvailableSeat(playerType);
         if (seat == null) {
+            logger.debug("joinTournament rejected: no available seat for type " + playerType + " player " + name);
             throw new GameException("No available seats.");
         }
         Optional<User> _user = managerFactory.userManager().getUser(userId);
@@ -132,11 +232,13 @@ public class TableController {
         // check password
         if (!table.getTournament().getOptions().getPassword().isEmpty() && playerType == PlayerType.HUMAN) {
             if (!table.getTournament().getOptions().getPassword().equals(password)) {
+                logger.error("joinTournament rejected: wrong password tableId " + table.getId() + " for player " + name + " userId " + userId);
                 user.showUserMessage("Join Table", "Wrong password.");
                 return false;
             }
         }
         if (userPlayerMap.containsKey(userId) && playerType == PlayerType.HUMAN) {
+            logger.error("joinTournament rejected: user already joined tableId " + table.getId() + " for player " + name + " userId " + userId);
             user.showUserMessage("Join Table", "You can join a table only one time.");
             return false;
         }
@@ -145,10 +247,23 @@ public class TableController {
             if (deckList != null) {
                 deck = Deck.load(deckList, false, false);
             } else {
+                logger.debug("joinTournament rejected: null deckList for player " + name);
                 user.showUserMessage("Join Table", "No valid deck selected!");
                 return false;
             }
+            // deck - P1 pool restriction (authoritative; independent of format legality)
+            String p1Reason = P1DeckRestriction.rejectReason(seat, deck);
+            if (p1Reason != null) {
+                logger.error(P1DeckRestriction.logLine("joinTournament", name, table.getId(), deck));
+                user.showUserMessage("Join Table", p1Reason);
+                if (isOwner(userId)) {
+                    logger.debug("New table removed because owner submitted a non-training deck for a P1 seat tableId " + table.getId());
+                    managerFactory.tableManager().removeTable(table.getId());
+                }
+                return false;
+            }
             if (!Main.isTestMode() && !table.getValidator().validate(deck)) {
+                logger.debug("joinTournament rejected: deck validation failed for player " + name + " format=" + table.getValidator().getName());
                 StringBuilder sb = new StringBuilder("You (").append(name).append(") have an invalid deck for the selected ").append(table.getValidator().getName()).append(" Format. \n\n");
                 List<DeckValidatorError> errorsList = table.getValidator().getErrorsListSorted();
                 errorsList.stream().forEach(error -> {
@@ -166,6 +281,7 @@ public class TableController {
         // Check quit ratio.
         int quitRatio = table.getTournament().getOptions().getQuitRatio();
         if (quitRatio < user.getTourneyQuitRatio()) {
+            logger.debug("joinTournament rejected: quit ratio " + user.getTourneyQuitRatio() + "% > required " + quitRatio + "% for player " + name);
             String message = new StringBuilder("Your quit ratio ").append(user.getTourneyQuitRatio())
                     .append("% is higher than the table requirement ").append(quitRatio).append('%').toString();
             user.showUserMessage("Join Table", message);
@@ -181,6 +297,7 @@ public class TableController {
             userRating = user.getUserData().getConstructedRating();
         }
         if (userRating < minimumRating) {
+            logger.debug("joinTournament rejected: rating " + userRating + " < required " + minimumRating + " for player " + name);
             String message = new StringBuilder("Your rating ").append(userRating)
                     .append(" is lower than the table requirement ").append(minimumRating).toString();
             user.showUserMessage("Join Table", message);
@@ -188,31 +305,44 @@ public class TableController {
         }
 
         Optional<Player> playerOptional = createPlayer(name, seat.getPlayerType(), skill);
-        if (playerOptional.isPresent()) {
-            Player player = playerOptional.get();
-            if (!player.canJoinTable(table)) {
-                user.showUserMessage("Join Table", new StringBuilder("A ").append(seat.getPlayerType()).append(" player can't join this table.").toString());
-                return false;
-            }
-            tournament.addPlayer(player, seat.getPlayerType());
-            TournamentPlayer tournamentPlayer = tournament.getPlayer(player.getId());
-            if (deck != null && tournamentPlayer != null) {
-                tournamentPlayer.submitDeck(deck);
-            }
-            table.joinTable(player, seat);
-            logger.debug("Player " + player.getName() + " id: " + player.getId() + " joined tableId: " + table.getId());
-            //only inform human players and add them to sessionPlayerMap
-            if (seat.getPlayer().isHuman()) {
-                seat.getPlayer().setUserData(user.getUserData());
-                user.addTable(player.getId(), table);
-                user.ccJoinedTable(table.getRoomId(), table.getId(), table.getParentTableId(), true);
-                userPlayerMap.put(userId, player.getId());
-            }
-
-            return true;
-        } else {
+        if (!playerOptional.isPresent()) {
+            logger.error("joinTournament failed: createPlayer returned empty for type=" + seat.getPlayerType() + " name=" + name);
             throw new GameException("Playertype " + seat.getPlayerType() + " could not be created.");
         }
+        Player player = playerOptional.get();
+        if (!player.canJoinTable(table)) {
+            logger.debug("joinTournament rejected: canJoinTable returned false for player " + name + " type=" + seat.getPlayerType());
+            user.showUserMessage("Join Table", new StringBuilder("A ").append(seat.getPlayerType()).append(" player can't join this table.").toString());
+            return false;
+        }
+        tournament.addPlayer(player, seat.getPlayerType());
+        TournamentPlayer tournamentPlayer = tournament.getPlayer(player.getId());
+        if (deck != null && tournamentPlayer != null) {
+            tournamentPlayer.submitDeck(deck);
+        }
+
+        // Apply per-seat LLM config overrides from the GUI
+        if (seat.getLlmPlayerConfig() != null) {
+            if (tournamentPlayer != null) {
+                tournamentPlayer.setLlmPlayerConfig(seat.getLlmPlayerConfig());
+            }
+            if (LLMPlayerHelper.isLLMPlayer(player)) {
+                LLMPlayerHelper.applyOverrides(player, seat.getLlmPlayerConfig());
+                logger.info("Applied GUI LLM config overrides for tournament player " + name);
+            }
+        }
+
+        table.joinTable(player, seat);
+        logger.debug("Player " + player.getName() + " id: " + player.getId() + " joined tableId: " + table.getId());
+        //only inform human players and add them to sessionPlayerMap
+        if (seat.getPlayer().isHuman()) {
+            seat.getPlayer().setUserData(user.getUserData());
+            user.addTable(player.getId(), table);
+            user.ccJoinedTable(table.getRoomId(), table.getId(), table.getParentTableId(), true);
+            userPlayerMap.put(userId, player.getId());
+        }
+
+        return true;
     }
 
     public boolean hasPlayer(UUID userId) {
@@ -263,12 +393,14 @@ public class TableController {
         // table - already joined
         User user = _user.get();
         if (userPlayerMap.containsKey(userId) && playerType == PlayerType.HUMAN) {
+            logger.error("joinTable rejected: user already joined tableId " + table.getId() + " for player " + name + " userId " + userId);
             user.showUserMessage("Join Table", new StringBuilder("You can join a table only one time.").toString());
             return false;
         }
 
         // table - already started
         if (table.getState() != TableState.WAITING) {
+            logger.error("joinTable rejected: table " + table.getId() + " is in state " + table.getState() + " (expected WAITING) for player " + name + " userId " + userId);
             user.showUserMessage("Join Table", "No available seats.");
             return false;
         }
@@ -276,6 +408,7 @@ public class TableController {
         // table - wrong password
         if (!table.getMatch().getOptions().getPassword().isEmpty() && playerType == PlayerType.HUMAN) {
             if (!table.getMatch().getOptions().getPassword().equals(password)) {
+                logger.error("joinTable rejected: wrong password tableId " + table.getId() + " for player " + name + " userId " + userId);
                 user.showUserMessage("Join Table", "Wrong password.");
                 return false;
             }
@@ -284,6 +417,7 @@ public class TableController {
         // table - no more free seats
         Seat seat = table.getNextAvailableSeat(playerType);
         if (seat == null) {
+            logger.error("joinTable rejected: no available seat for type " + playerType + " tableId " + table.getId() + " for player " + name + " userId " + userId);
             user.showUserMessage("Join Table", "No available seats.");
             return false;
         }
@@ -292,6 +426,18 @@ public class TableController {
         // P.S. Quick start button can raise error here on memory problems, but it's ok
         // (real table creating is unaffected and will not create empty table)
         Deck deck = Deck.load(deckList, false, false);
+
+        // deck - P1 pool restriction (authoritative; independent of format legality)
+        String p1Reason = P1DeckRestriction.rejectReason(seat, deck);
+        if (p1Reason != null) {
+            logger.error(P1DeckRestriction.logLine("joinTable", name, table.getId(), deck));
+            user.showUserMessage("Join Table", p1Reason);
+            if (isOwner(userId)) {
+                logger.debug("New table removed because owner submitted a non-training deck for a P1 seat tableId " + table.getId());
+                managerFactory.tableManager().removeTable(table.getId());
+            }
+            return false;
+        }
 
         // deck - validate
         if (!Main.isTestMode() && !table.getValidator().validate(deck)) {
@@ -302,6 +448,7 @@ public class TableController {
             });
             sb.append("\n\nSelect a deck that is appropriate for the selected format and try again!");
             user.showUserMessage("Join Table", sb.toString());
+            logger.error("joinTable rejected: invalid deck format=" + table.getValidator().getName() + " tableId " + table.getId() + " for player " + name + " userId " + userId);
 
             // owner must create table with valid deck only
             if (isOwner(userId)) {
@@ -314,6 +461,7 @@ public class TableController {
         // user - restrict by quit ratio
         int quitRatio = table.getMatch().getOptions().getQuitRatio();
         if (quitRatio < user.getMatchQuitRatio()) {
+            logger.error("joinTable rejected: quit ratio " + user.getMatchQuitRatio() + "% > required " + quitRatio + "% tableId " + table.getId() + " for player " + name + " userId " + userId);
             String message = new StringBuilder("Your quit ratio ").append(user.getMatchQuitRatio())
                     .append("% is higher than the table requirement ").append(quitRatio).append('%').toString();
             user.showUserMessage("Join Table", message);
@@ -329,6 +477,7 @@ public class TableController {
             userRating = user.getUserData().getConstructedRating();
         }
         if (userRating < minimumRating) {
+            logger.error("joinTable rejected: rating " + userRating + " < required " + minimumRating + " tableId " + table.getId() + " for player " + name + " userId " + userId);
             String message = new StringBuilder("Your rating ").append(userRating)
                     .append(" is lower than the table requirement ").append(minimumRating).toString();
             user.showUserMessage("Join Table", message);
@@ -340,6 +489,7 @@ public class TableController {
         if (edhPowerLevel > 0 && table.getValidator().getName().toLowerCase(Locale.ENGLISH).equals("commander")) {
             int deckEdhPowerLevel = table.getValidator().getEdhPowerLevel(deck, new ArrayList<>(), new ArrayList<>());
             if (deckEdhPowerLevel % 100 > edhPowerLevel) {
+                logger.error("joinTable rejected: deck power level " + (deckEdhPowerLevel % 100) + " > allowed " + edhPowerLevel + " tableId " + table.getId() + " for player " + name + " userId " + userId);
                 String message = new StringBuilder("Your deck appears to be too powerful for this table.\n\nReduce the number of extra turn cards, infect, counters, fogs, reconsider your commander. ")
                         .append("\nThe table requirement has a maximum power level of ").append(edhPowerLevel).append(" whilst your deck has a calculated power level of ")
                         .append(deckEdhPowerLevel % 100).toString();
@@ -371,6 +521,7 @@ public class TableController {
                 badColor = "green";
             }
             if (restrictedColor) {
+                logger.error("joinTable rejected: deck contains restricted color " + badColor + " tableId " + table.getId() + " for player " + name + " userId " + userId);
                 String message = new StringBuilder("Your deck contains ")
                         .append(badColor)
                         .append(".  The creator of the table has requested no ")
@@ -381,8 +532,13 @@ public class TableController {
             }
         }
 
-        // player - try to create (human, ai, etc)
-        Optional<Player> playerOpt = createPlayer(name, seat.getPlayerType(), skill);
+        // player - try to create (human, ai, etc). The seat's LLMPlayerConfig (if any)
+        // rides into construction via LLMPlayerConfig.setPendingPlayerConfig so
+        // LLMPlayer.init() applies it BEFORE context-window detection / thinking probe
+        // — those dial the SEAT's endpoint, not the server default (a dead default
+        // endpoint used to fail the whole creation here).
+        Optional<Player> playerOpt = createPlayer(name, seat.getPlayerType(), skill,
+                seat.getLlmPlayerConfig());
         if (!playerOpt.isPresent()) {
             String message = "Could not create player " + name + " of type " + seat.getPlayerType();
             logger.warn("User: " + user.getName() + " => " + message);
@@ -393,11 +549,19 @@ public class TableController {
         // player - restrict by player type, e.g. draft bot can join to tourney only
         Player player = playerOpt.get();
         if (!player.canJoinTable(table)) {
+            logger.error("joinTable rejected: canJoinTable returned false for type " + seat.getPlayerType() + " tableId " + table.getId() + " for player " + name + " userId " + userId);
             user.showUserMessage("Join Table", "A " + seat.getPlayerType() + " player can't join this table.");
             return false;
         }
 
         // all fine, player can be added
+
+        // Apply per-seat LLM config overrides from the GUI if the seat has overrides
+        if (seat.getLlmPlayerConfig() != null && LLMPlayerHelper.isLLMPlayer(player)) {
+            LLMPlayerHelper.applyOverrides(player, seat.getLlmPlayerConfig());
+            logger.info("Applied GUI LLM config overrides for player " + name);
+        }
+
         match.addPlayer(player, deck);
         table.joinTable(player, seat);
 
@@ -416,6 +580,7 @@ public class TableController {
 
     public void addPlayer(UUID userId, Player player, PlayerType playerType, Deck deck) throws GameException {
         if (table.getState() != TableState.WAITING) {
+            logger.error("addPlayer rejected: table " + table.getId() + " is in state " + table.getState() + " (expected WAITING) for player " + player.getName() + " userId " + userId);
             return;
         }
         Seat seat = table.getNextAvailableSeat(playerType);
@@ -424,15 +589,75 @@ public class TableController {
         }
         match.addPlayer(player, deck);
         table.joinTable(player, seat);
+
+        // Apply per-seat LLM config overrides for tournament sub-tables too
+        if (seat.getLlmPlayerConfig() != null && LLMPlayerHelper.isLLMPlayer(player)) {
+            LLMPlayerHelper.applyOverrides(player, seat.getLlmPlayerConfig());
+        }
+
         if (player.isHuman()) {
             userPlayerMap.put(userId, player.getId());
         }
     }
 
     /**
-     * Submit deck on sideboarding/construction (final deck)
+     * Submit deck on sideboarding/construction (final deck).
+     *
+     * <p>NOT synchronized on purpose: an early between-games submit (the player
+     * answered the sideboard prompt before the server finished the game-end
+     * transition) must be able to WAIT for the transition, and the game thread
+     * takes this controller's monitor in the middle of that transition
+     * ({@code sideboard()} -> {@code setupTimeout(..)}/{@code cancelTimeout()},
+     * both synchronized). Holding the monitor while waiting would deadlock
+     * until the deadline; the actual state check + apply is delegated to
+     * {@link #submitDeckSynchronized} so the critical section is unchanged.
      */
-    public synchronized boolean submitDeck(UUID userId, DeckCardLists deckList) throws MageException {
+    public boolean submitDeck(UUID userId, DeckCardLists deckList) throws MageException {
+        // Early-submit gate (see the note at the state check): when the phase
+        // has not been entered for this player yet but the game-end transition
+        // is provably in flight, the prompt has either not been delivered or
+        // the state has not flipped — wait for BOTH before touching state.
+        // The normal path (phase already entered) skips the gate entirely and
+        // keeps its exact pre-fix behavior; only genuinely early submits wait.
+        if (!isSideboardPhaseEntered(userId) && isEarlySideboardSubmit(userId)) {
+            long deadline = System.currentTimeMillis() + SIDEBOARD_SUBMIT_HOLD_MS;
+            logger.info("submitDeck: early submit during the game-end transition — holding for player "
+                    + userPlayerMap.get(userId) + " (tableId " + table.getId() + ", state "
+                    + table.getState() + ")");
+            while (System.currentTimeMillis() < deadline) {
+                if (isSideboardPhaseEntered(userId)) {
+                    break;
+                }
+                // The transition can also RESOLVE to "no sideboarding" — the
+                // just-ended game decided the match, so endGameAndStartNextGame()
+                // closes the table (state FINISHED) instead of sideboarding.
+                // Nothing is coming: stop waiting and refuse now. (Only the
+                // table state is consulted here — Match.hasEnded() mutates match
+                // bookkeeping and must not be called off the game thread.)
+                if (table.getState() == TableState.FINISHED) {
+                    break;
+                }
+                try {
+                    Thread.sleep(SIDEBOARD_SUBMIT_POLL_MS);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            if (!isSideboardPhaseEntered(userId)) {
+                String reason = buildSubmitRefusalReason();
+                logger.warn("submitDeck rejected after hold: " + reason
+                        + " (tableId " + table.getId() + ")");
+                notifySubmitRefused(userId, reason);
+                return false;
+            }
+            logger.info("submitDeck: transition complete — applying the held submit for player "
+                    + userPlayerMap.get(userId) + " (tableId " + table.getId() + ")");
+        }
+        return submitDeckSynchronized(userId, deckList);
+    }
+
+    private synchronized boolean submitDeckSynchronized(UUID userId, DeckCardLists deckList) throws MageException {
         UUID playerId = userPlayerMap.get(userId);
 
         // player - update tourney's player status
@@ -458,8 +683,24 @@ public class TableController {
         }
 
         // tourney - too late for submit
+        //
+        // The legal
+        // states are SIDEBOARDING and CONSTRUCTING, but a submit can legitimately
+        // arrive while the table is still transitioning into sideboarding. The
+        // window is real and client-visible: GameController.endGame() sends the
+        // game-over frame to the clients BEFORE TableManager.endGame() ->
+        // endGameAndStartNextGame() runs the post-game bookkeeping (a second
+        // game save + match.endGame()) and only then flips the table state via
+        // sideboard(). Measured live: a submit landing in that gap is rejected
+        // here with state "Dueling" even though the client has already been told
+        // the game is over. Such a submit is HELD before this method runs (see
+        // submitDeck); by the time we get here the phase is entered. Every other
+        // state keeps the original refusal, now with a real reason.
         if (table.getState() != TableState.SIDEBOARDING
                 && table.getState() != TableState.CONSTRUCTING) {
+            String reason = buildSubmitRefusalReason();
+            logger.debug("submitDeck rejected: " + reason + " (tableId " + table.getId() + ")");
+            notifySubmitRefused(userId, reason);
             return false;
         }
 
@@ -474,10 +715,21 @@ public class TableController {
             }
         }
 
+        // deck - P1 pool restriction (authoritative; a P1 seat must not swap in
+        // an off-pool list between games any more than at join time).
+        Seat p1Seat = seatOfPlayer(playerId);
+        String p1Reason = P1DeckRestriction.rejectReason(p1Seat, deck);
+        if (p1Reason != null) {
+            logger.error(P1DeckRestriction.logLine("submitDeck(sideboard)", playerId.toString(), table.getId(), deck));
+            notifySubmitRefused(userId, p1Reason);
+            return false;
+        }
+
         // deck - validate
         if (!Main.isTestMode() && !table.getValidator().validate(deck)) {
             Optional<User> _user = managerFactory.userManager().getUser(userId);
             if (!_user.isPresent()) {
+                logger.warn("submitDeck rejected: deck invalid and user " + userId + " no longer present (tableId " + table.getId() + ")");
                 return false;
             }
             StringBuilder sb = new StringBuilder("Invalid deck for the selected ").append(table.getValidator().getName()).append(" format. \n\n");
@@ -503,6 +755,112 @@ public class TableController {
         }
         Deck deck = Deck.load(deckList, false, false);
         updateDeck(userId, playerId, deck);
+    }
+
+    /**
+     * True when this submit is a LEGITIMATE early between-games submit: the
+     * player is seated at a match (non-tournament) table whose current game has
+     * ENDED with the match still alive and sideboarding allowed, but the table
+     * has not yet been flipped to SIDEBOARDING by
+     * {@link #endGameAndStartNextGame()}.
+     *
+     * <p>That predicate is exactly the client-visible situation: the game-over
+     * frame has been delivered to the seats and the next phase is on its way.
+     * Anything else (a table that is mid-game, a finished table, a table whose
+     * match is over) is NOT an early submit and must keep the original
+     * fail-fast refusal. See the state-check note in
+     * {@link #submitDeckSynchronized}.
+     */
+    private boolean isEarlySideboardSubmit(UUID userId) {
+        if (table.isTournament() || table.getMatch() == null) {
+            return false;
+        }
+        UUID playerId = userPlayerMap.get(userId);
+        if (playerId == null) {
+            return false;
+        }
+        MatchPlayer mPlayer = table.getMatch().getPlayer(playerId);
+        if (mPlayer == null || mPlayer.hasQuit()) {
+            return false;
+        }
+        Game game = table.getMatch().getGame();
+        if (game == null || !game.hasEnded()) {
+            return false;                   // mid-game: nothing is early about it
+        }
+        if (table.getMatch().getGame().getGameType() == null
+                || !table.getMatch().getGame().getGameType().isSideboardingAllowed()) {
+            return false;                   // single-game match: no sideboard phase
+        }
+        return true;
+    }
+
+    /**
+     * True once the table has actually entered the phase this player is waiting
+     * for: the state is SIDEBOARDING (match) or CONSTRUCTING (limited build)
+     * AND — for the sideboarding case — this player's prompt has been
+     * delivered, so the {@code setSideboarding()} done-flag clear has already
+     * run {@code MatchImpl.sideboard()} and is no longer able to clobber the
+     * submit. The state alone is not enough: it flips at the TOP of
+     * {@link #sideboard()}, several steps before the per-player prompt.
+     */
+    private boolean isSideboardPhaseEntered(UUID userId) {
+        TableState state = table.getState();
+        if (state == TableState.CONSTRUCTING) {
+            return true;
+        }
+        if (state != TableState.SIDEBOARDING) {
+            return false;
+        }
+        UUID playerId = userPlayerMap.get(userId);
+        return playerId == null || sideboardPromptedPlayers.contains(playerId);
+    }
+
+    /**
+     * Human-readable reason for a refused (or not-yet-enterable) submit, built
+     * from the CURRENT table/match state so it is actionable for the player:
+     * the client shows this text verbatim — the old refusal path
+     * returned a bare false and the proxy therefore rendered an EMPTY reason,
+     * "Failed to submit deck: ").
+     */
+    private String buildSubmitRefusalReason() {
+        TableState state = table.getState();
+        if (state == TableState.DUELING || state == TableState.STARTING) {
+            // Distinguish the two flavours of "Dueling" for the player:
+            //   * the game is still being played — nothing to submit yet;
+            //   * the game has ended and the server is mid-transition into the
+            //     between-games phase (the window this issue is about). The
+            //     latter is normally HELD, not refused, so reaching here means
+            //     the hold timed out or the submit arrived while an OLD game
+            //     was still live.
+            Game game = table.getMatch() != null ? table.getMatch().getGame() : null;
+            if (game != null && !game.hasEnded()) {
+                return "The current game is still in progress — a deck can only be submitted between games, while sideboarding.";
+            }
+            return "The server is still setting up the next sideboard phase after the game that just ended — try again in a moment.";
+        }
+        if (state == TableState.FINISHED) {
+            return "This table is finished — its deck can no longer be changed.";
+        }
+        if (state == TableState.WAITING || state == TableState.READY_TO_START) {
+            return "This match has not started yet — there is nothing to sideboard for.";
+        }
+        if (state == TableState.DRAFTING) {
+            return "This table is drafting — submit the deck after the draft finishes.";
+        }
+        return "The table is in state " + state + ", which does not accept deck submissions right now.";
+    }
+
+    /**
+     * Surface a refused submit over the existing user-message channel so the
+     * refusal carries a REAL reason end-to-end (server -> SHOW_USERMESSAGE
+     * callback -> proxy -> browser). The boolean return value alone cannot
+     * carry text, and the proxy's fallback ({@code getLastError()}) is only
+     * populated for connect failures — that is why the pre-fix refusal rendered
+     * an empty toast. Non-fatal: a user that vanished mid-call is simply gone.
+     */
+    private void notifySubmitRefused(UUID userId, String reason) {
+        managerFactory.userManager().getUser(userId).ifPresent(user ->
+                user.showUserMessage("Submit deck", reason));
     }
 
     private void submitDeck(UUID userId, UUID playerId, Deck deck) {
@@ -541,35 +899,75 @@ public class TableController {
             return true;
         } else {
             if (table.isTournamentSubTable() && !table.getTournament().getOptions().isWatchingAllowed()) {
+                logger.debug("watchTable rejected: watching not allowed on tournament sub-table " + table.getId());
                 return false;
             }
             if (table.getState() != TableState.DUELING) {
+                logger.debug("watchTable rejected: table state " + table.getState() + " is not DUELING (tableId " + table.getId() + ")");
                 return false;
             }
             // you can't watch your own game
             if (userPlayerMap.get(userId) != null) {
+                logger.debug("watchTable rejected: user " + userId + " is already a player at table " + table.getId());
                 return false;
             }
             Optional<User> _user = managerFactory.userManager().getUser(userId);
             if (!_user.isPresent()) {
+                logger.debug("watchTable rejected: user " + userId + " not present (tableId " + table.getId() + ")");
                 return false;
             }
             return _user.get().ccWatchGame(table.getId(), table.getParentTableId(), match.getGame().getId());
         }
     }
 
-    private Optional<Player> createPlayer(String name, PlayerType playerType, int skill) {
+    public Optional<Player> createPlayer(String name, PlayerType playerType, int skill) {
+        return createPlayer(name, playerType, skill, null);
+    }
+
+    public Optional<Player> createPlayer(String name, PlayerType playerType, int skill, mage.players.LLMPlayerConfig seatConfig) {
         Optional<Player> playerOpt;
         if (options == null) {
-            playerOpt = PlayerFactory.instance.createPlayer(playerType, name, RangeOfInfluence.ALL, skill);
+            playerOpt = PlayerFactory.instance.createPlayer(playerType, name, RangeOfInfluence.ALL, skill, seatConfig);
         } else {
-            playerOpt = PlayerFactory.instance.createPlayer(playerType, name, options.getRange(), skill);
+            playerOpt = PlayerFactory.instance.createPlayer(playerType, name, options.getRange(), skill, seatConfig);
         }
         if (playerOpt.isPresent()) {
             Player player = playerOpt.get();
             logger.trace("Player " + player.getName() + " created id: " + player.getId());
         }
         return playerOpt;
+    }
+
+    /**
+     * Wire per-seat LLM config overrides from MatchOptions into the Table's
+     * Seat objects, so they're available when LLM players join.
+     * <p>
+     * The configs list is positionally aligned with LLM seats: each LLM seat
+     * gets the config at the corresponding index. Null entries are intentional
+     * and mean "no user override for this seat — use server defaults".
+     */
+    private void wireLlmConfigs() {
+        if (options == null) return;
+        List<mage.players.LLMPlayerConfig> configs = options.getLlmPlayerConfigs();
+        if (configs == null || configs.isEmpty()) return;
+
+        Seat[] seats = table.getSeats();
+        int cfgIdx = 0;
+        int wired = 0;
+        for (Seat seat : seats) {
+            if (seat.getPlayerType() == PlayerType.COMPUTER_LLM) {
+                if (cfgIdx < configs.size()) {
+                    mage.players.LLMPlayerConfig cfg = configs.get(cfgIdx++);
+                    if (cfg != null) {
+                        seat.setLlmPlayerConfig(cfg);
+                        wired++;
+                    }
+                }
+            }
+        }
+        if (wired > 0) {
+            logger.info("Wired " + wired + " LLM player config(s) into seats");
+        }
     }
 
     public void leaveTableAll() {
@@ -756,7 +1154,14 @@ public class TableController {
 
     public synchronized void startTournament(UUID userId) {
         try {
-            if (userId.equals(this.userId) && table.getState() == TableState.STARTING) {
+            // Accept both READY_TO_START and STARTING — the client may call
+            // startTournament directly (all-AI) or via the waiting dialog (human).
+            TableState currentState = table.getState();
+            if (userId.equals(this.userId)
+                    && (currentState == TableState.STARTING || currentState == TableState.READY_TO_START)) {
+                if (currentState == TableState.READY_TO_START) {
+                    table.setState(TableState.STARTING);
+                }
                 tournament.setStartTime();
                 managerFactory.tournamentManager().createTournamentSession(tournament, userPlayerMap, table.getId());
                 for (Entry<UUID, UUID> entry : userPlayerMap.entrySet()) {
@@ -794,6 +1199,14 @@ public class TableController {
             if (entry.getValue().equals(playerId)) {
                 Optional<User> user = managerFactory.userManager().getUser(entry.getKey());
                 int remaining = (int) futureTimeout.getDelay(TimeUnit.SECONDS);
+                // Record the prompt as DELIVERED for this seat BEFORE the send:
+                // this listener runs on the game thread INSIDE MatchImpl.sideboard()
+                // (the SIDEBOARD table event fires from HumanPlayer.sideboard ->
+                // match.fireSideboardEvent), i.e. immediately before
+                // setSideboarding() would have been called for this player. The
+                // early-submit hold (see submitDeck) treats "prompt delivered" as
+                // the point where a submit can safely be applied.
+                sideboardPromptedPlayers.add(playerId);
                 user.ifPresent(user1 -> user1.ccSideboard(deck, table.getId(), table.getParentTableId(), remaining, options.isLimited()));
                 break;
             }
@@ -834,17 +1247,44 @@ public class TableController {
         }
         ThreadUtils.setGameThreadStatus(game.getId(), ThreadUtils.THREAD_GAME_STATUS_AFTER_GAME);
         UUID choosingPlayerId = match.getChooser();
+        // Snapshot draws: endGame() bumps match draws when the just-ended game
+        // was a draw — that delta is the only reliable per-game draw signal.
+        int drawsBefore = match.getDraws();
         match.endGame();
+        if (match.getDraws() > drawsBefore) {
+            consecutiveDraws++;
+        } else {
+            consecutiveDraws = 0;
+        }
         if (managerFactory.configSettings().isSaveGameActivated() && !game.isSimulation()) {
             if (managerFactory.gameManager().saveGame(game.getId())) {
                 match.setReplayAvailable(true);
             }
         }
-        managerFactory.gameManager().removeGame(game.getId());
         ServerMessagesUtil.instance.incGamesEnded();
 
         try {
             if (!match.hasEnded()) {
+                // Consecutive-draw backstop, all-AI matches only (same allAI
+                // predicate as sideboard()). A draw awards no win, so a match
+                // where every game draws can NEVER satisfy winsNeeded and
+                // restarts games forever.
+                // Checked before sideboard() so a doomed match burns no further
+                // LLM calls. Human matches are never capped: 5 straight draws
+                // is vanishingly rare but possible for real players.
+                boolean allAI = match.getPlayers().stream()
+                        .allMatch(p -> p.hasQuit() || !p.getPlayer().isHuman());
+                if (allAI && consecutiveDraws >= MAX_CONSECUTIVE_DRAWS) {
+                    logger.warn("Closing all-AI table " + table.getId() + " (match " + match.getId() + "): "
+                            + consecutiveDraws + " consecutive drawn games, cap " + MAX_CONSECUTIVE_DRAWS
+                            + " reached - match would never end (degenerate instant-draw loop)");
+                    managerFactory.chatManager().broadcast(chatId, "",
+                            "Match closed: " + consecutiveDraws + " consecutive drawn games, cap "
+                                    + MAX_CONSECUTIVE_DRAWS + " reached - the match can never finish, stopping the game loop.",
+                            ChatMessage.MessageColor.RED, true, null, ChatMessage.MessageType.STATUS, null);
+                    closeTable();
+                    return true; // table was force-closed — caller may remove it
+                }
                 if (match.getGame() != null && match.getGame().getGameType().isSideboardingAllowed()) {
                     sideboard();
                 }
@@ -858,13 +1298,39 @@ public class TableController {
             }
         } catch (GameException ex) {
             logger.fatal(null, ex);
+        } finally {
+            // Defer game-controller removal until the inter-game transition is
+            // complete (sideboard + next-game start). Client-key LLM seats
+            // route their calls through
+            // LLMBridgeRegistry -> LLMClientTransport.deliver(), which resolves
+            // gameId -> tableId via gameManager.getTableIdForGame(gameId) — i.e.
+            // the JUST-ENDED game's controller must still be registered while
+            // sideboard()/revised-strategy LLM calls run. Removing it earlier
+            // made every inter-game LLM call fail instantly with "No browser
+            // session for LLM seat ..." and fatally killed the match at the
+            // game-1 -> game-2 boundary.
+
+            managerFactory.gameManager().removeGame(game.getId());
         }
         return match.hasEnded();
     }
 
     private void sideboard() {
+        // New phase: forget the previous phase's prompt deliveries, so a stale
+        // entry can never let an early submit skip the wait (see
+        // sideboardPromptedPlayers). Filled again per player by the SIDEBOARD
+        // table-event listener as each ccSideboard goes out.
+        sideboardPromptedPlayers.clear();
         table.sideboard();
-        setupTimeout(Match.SIDEBOARD_TIME);
+        // AI-only matches (LLM vs LLM, bot games) can take several minutes per
+        // sideboarding call — deepseek at max effort needs 5+ min per player.
+        // Use a much longer timeout so autoSideboard() doesn't fire while the
+        // LLM is still thinking, which would falsely mark players as done and
+        // cause the health check to remove the table mid-sideboard.
+        boolean allAI = match.getPlayers().stream()
+                .allMatch(p -> p.hasQuit() || !p.getPlayer().isHuman());
+        int sideboardTimeout = allAI ? AI_SIDEBOARD_TIME : Match.SIDEBOARD_TIME;
+        setupTimeout(sideboardTimeout);
         if (table.isTournamentSubTable()) {
             for (MatchPlayer matchPlayer : match.getPlayers()) {
                 if (!matchPlayer.hasQuit()) {
@@ -1005,6 +1471,19 @@ public class TableController {
         return table;
     }
 
+    /** The seat occupied by the given player id, or null (used by the P1 gate). */
+    private Seat seatOfPlayer(UUID playerId) {
+        if (playerId == null) {
+            return null;
+        }
+        for (Seat s : table.getSeats()) {
+            if (s.getPlayer() != null && playerId.equals(s.getPlayer().getId())) {
+                return s;
+            }
+        }
+        return null;
+    }
+
     public UUID getChatId() {
         return chatId;
     }
@@ -1037,6 +1516,15 @@ public class TableController {
         return null;
     }
 
+    /**
+     * Table owner/creator (null for tournament sub-tables). This is the user
+     * whose browser created the table — the browser that holds per-seat user
+     * API keys for client-key LLM seats (LLMClientTransport routing).
+     */
+    public UUID getOwnerUserId() {
+        return userId;
+    }
+
     public boolean isUserStillActive(UUID userId) {
         UUID playerId = userPlayerMap.get(userId);
         if (playerId != null) {
@@ -1059,6 +1547,11 @@ public class TableController {
             return true;
         }
 
+        // tournament sub-tables are managed by TournamentController — don't remove them
+        if (table.isTournamentSubTable()) {
+            return true;
+        }
+
         // only started games need to check
         if (Arrays.asList(
                 TableState.WAITING,
@@ -1075,6 +1568,15 @@ public class TableController {
 
         // no games in started match (error in match init code?)
         if (match.getGame() == null) {
+            // Between games of a multi-game match (e.g. Bo3), the current game
+            // may be null briefly while the next game is being set up. If no
+            // player has won the match yet, keep the table alive rather than
+            // incorrectly removing it as "unhealthy".
+            boolean matchWon = match.getPlayers().stream()
+                    .anyMatch(MatchPlayer::isMatchWinner);
+            if (!matchWon) {
+                return true; // match still in progress, between games
+            }
             logger.error("- Match without started games:");
             logger.error("-- matchId:" + match.getId());
             return false; // critical error
@@ -1126,7 +1628,24 @@ public class TableController {
         }
 
         // if someone can play 1 vs 1 (e.g. 2+ players) then keep table
-        return validAIPlayers + validHumanPlayers >= 2;
+        if (validAIPlayers + validHumanPlayers >= 2) {
+            return true;
+        }
+
+        // Between games of a multi-game match (e.g. Bo3), players may briefly
+        // not be isInGame() while transitioning from one game to the next.
+        // If the match is still in progress (no winner yet), keep the table
+        // alive so the next game can start.
+        if (table.getState() == TableState.DUELING) {
+            boolean matchWon = match.getPlayers().stream()
+                    .anyMatch(MatchPlayer::isMatchWinner);
+            if (!matchWon) {
+                return true; // match still in progress, between games
+            }
+        }
+
+        logger.debug("isMatchTableStillValid -> false (no valid players remain; tableId " + table.getId() + ", matchId " + match.getId() + ", state " + table.getState() + ")");
+        return false;
     }
 
     void cleanUp() {
@@ -1147,6 +1666,7 @@ public class TableController {
     public synchronized boolean changeTableStateToStarting() {
         if (table.getState() != TableState.READY_TO_START) {
             // tournament is not ready, can't start
+            logger.debug("changeTableStateToStarting rejected: table state " + table.getState() + " is not READY_TO_START (tableId " + table.getId() + ")");
             return false;
         }
         if (!table.allSeatsAreOccupied()) {

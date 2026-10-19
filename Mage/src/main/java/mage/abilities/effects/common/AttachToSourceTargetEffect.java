@@ -16,6 +16,12 @@ import java.util.UUID;
  * @author notgreat
  */
 public class AttachToSourceTargetEffect extends OneShotEffect {
+    // Pinned 2026-10-02 against silent UID drift orphaning the .game replay corpus
+    // the third instance is
+    // This is the value this class
+    // computed when the pin was added: it FREEZES the wire UID, so later field/method/superclass
+    // edits no longer change it. A deliberate format break must re-derive it explicitly.
+    private static final long serialVersionUID = -4505143709879460827L;
 
     public AttachToSourceTargetEffect() {
         super(Outcome.BoostCreature);

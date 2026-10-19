@@ -463,7 +463,11 @@ public abstract class MatchImpl implements Match {
         for (MatchPlayer matchPlayer : players) {
             matchPlayer.cleanUpOnMatchEnd();
         }
-        if ((!isSaveGameActivated && !isTournament) || this.getGame().isSimulation()) {
+        // getGame() is null when the match never started a game (e.g. the table
+        // is being torn down after a failed player join). No game was recorded,
+        // so there is nothing to preserve — clear games in that case too.
+        if ((!isSaveGameActivated && !isTournament)
+                || (this.getGame() != null && this.getGame().isSimulation())) {
             this.getGames().clear();
         }
     }

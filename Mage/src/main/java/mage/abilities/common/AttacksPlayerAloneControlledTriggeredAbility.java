@@ -14,6 +14,12 @@ import java.util.UUID;
  * @author muz
  */
 public class AttacksPlayerAloneControlledTriggeredAbility extends TriggeredAbilityImpl {
+    // Pinned 2026-10-02 against silent UID drift orphaning the .game replay corpus
+    // the third instance is
+    // This is the value this class
+    // computed when the pin was added: it FREEZES the wire UID, so later field/method/superclass
+    // edits no longer change it. A deliberate format break must re-derive it explicitly.
+    private static final long serialVersionUID = -3570144507765990434L;
 
     public AttacksPlayerAloneControlledTriggeredAbility(Effect effect) {
         super(Zone.BATTLEFIELD, effect);

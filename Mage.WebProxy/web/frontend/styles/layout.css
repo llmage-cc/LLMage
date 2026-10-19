@@ -1,0 +1,810 @@
+/* layout.css — CSS Grid main layout, resizable panels */
+
+body {
+    display: flex;
+    flex-direction: column;
+    height: var(--vh);
+    margin: 0;
+    overflow: hidden;
+}
+
+/* ── Connection overlay ── */
+.connect-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--bg-base);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.connect-form {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 12px;
+    padding: 2rem;
+    max-width: 380px;
+    width: 90%;
+}
+
+.connect-form h1 {
+    font-family: var(--font-heading);
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: var(--accent-primary);
+    margin-bottom: 1.5rem;
+}
+
+.connect-form label {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+    margin-top: 1rem;
+}
+
+.connect-form input {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    color: var(--text-primary);
+    padding: 0.5rem;
+    font-size: 0.95rem;
+}
+
+.connect-form input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.connect-form button {
+    width: 100%;
+    margin-top: 1.5rem;
+    padding: 0.6rem;
+    background: var(--accent-primary);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.connect-form button:hover {
+    filter: brightness(1.1);
+}
+
+.connect-form button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ── Lobby ──
+   App-shell model (matches .game-container): .lobby-view is a fixed-viewport
+   flex column; the middle row (.lobby-columns) owns ALL remaining height and
+   .lobby-main scrolls INTERNALLY — the page itself never scrolls, so the
+   right rail (users + chat) can stretch edge to edge like the stock client. */
+.lobby-view {
+    padding: 1.25rem 1.5rem;
+    /* Full width like the stock desktop lobby — the old 800px centered cap
+       smashed the two-column layout into a narrow strip on wide screens
+ and clipped the games grid. */
+    max-width: none;
+    margin: 0;
+    box-sizing: border-box;
+    /* The page itself can't scroll (body overflow: hidden, #root viewport-
+       locked for the game board) — the lobby fills the viewport instead and
+       its main column scrolls INTERNALLY. */
+    height: var(--vh);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.lobby-shell {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Header row: title + action buttons on one line (buttons are what the
+   stock client puts in its top bar too). */
+.lobby-header-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    flex-shrink: 0;
+    margin-bottom: 1rem;
+}
+
+.lobby-header-row h2 {
+    margin: 0;
+}
+
+.lobby-view h2 {
+    color: var(--accent-primary);
+    margin-bottom: 1rem;
+}
+
+.lobby-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+/* ── Game container ── */
+.game-container {
+    display: flex;
+    flex-direction: column;
+    height: var(--vh);
+    overflow: hidden;
+}
+
+.game-header-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    /* Real gap between the title / turn-info / menu clusters. The menu child
+       carries an inline margin-left:auto (GameHeader.tsx / ReplayView.tsx),
+       which absorbs ALL free space on the main axis — so space-between has
+       nothing left to distribute and the title sat flush against #turn-info
+       (measured 0 px in Chromium; 16 px at --ui-scale 1 with this gap). An
+       explicit gap cannot be absorbed by an auto margin. */
+    gap: calc(1rem * var(--ui-scale, 1));
+    padding: calc(0.5rem * var(--ui-scale, 1)) calc(1rem * var(--ui-scale, 1));
+    min-height: calc(2.75rem * var(--ui-scale, 1));
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-default);
+    flex-shrink: 0;
+}
+
+/* ── Main 3-column layout ──
+   Column widths are driven by JS (GameView.tsx) via --left-col-w / --right-col-w
+   CSS variables, set on the .game-content element as inline style.
+   The resize handles sit between the columns. Handle + gap px are scaled by
+   --ui-scale so the whole chrome scales together. */
+.game-content {
+    display: grid;
+    grid-template-columns: var(--left-col-w, 140px) calc(6px * var(--ui-scale, 1)) 1fr calc(6px * var(--ui-scale, 1)) var(--right-col-w, 280px);
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* Resize handles between columns — dragged via JS */
+.resize-handle {
+    background: var(--border-default);
+    cursor: col-resize;
+    position: relative;
+    z-index: 5;
+    transition: background 0.15s;
+}
+
+.resize-handle:hover,
+.resize-handle.dragging {
+    background: var(--accent-primary);
+}
+
+/* Left rail: stack column only */
+.game-left {
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border-default);
+    overflow: hidden;
+    min-width: 0;  /* allow JS to control width */
+}
+
+/* Stack section fills the left rail */
+.stack-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 0.25rem;
+}
+
+.stack-section > div:first-child {
+    flex-shrink: 0;
+}
+
+#stack-cards {
+    flex: 1;
+    overflow-y: auto;
+}
+
+/* Stack items displayed top-to-bottom */
+.stack-item {
+    margin-bottom: 0.4rem;
+}
+
+.stack-item:last-child {
+    margin-bottom: 0;
+}
+
+/* Center: battlefield */
+.game-center {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+}
+
+/* ── 1v1 battlefield split (GameView.tsx) ──
+   Opponent board (top) and own board (bottom) separated by a draggable
+   horizontal handle, with the phase strip between them. Heights come from
+   --split-pct / --split-rest (JS-set, clamped 25–75%); panes may SHRINK so
+   the auto-height strip + handle always fit — flex-shrink distributes the
+   negative space proportionally to the basis, so the split ratio holds.
+   .player-card gets flex:1 inside each pane so the board fills its pane
+   (the old single-grid path stretched boards via the grid's 1fr rows). */
+.battlefield-split {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+.battlefield-split-pane {
+    flex: 0 1 var(--split-pct, 50%);
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.battlefield-split-pane + .phase-strip + .resize-handle-h + .battlefield-split-pane {
+    flex: 0 1 var(--split-rest, 50%);
+}
+
+.battlefield-split > .phase-strip {
+    flex: 0 0 auto;
+}
+
+.battlefield-split-pane .player-card {
+    flex: 1;
+}
+
+/* ── Independent battlefield scaling ──
+   Each split pane re-scopes the global --card-* custom properties to ITS OWN
+   fit size. The intermediates (--pane-* / --pane2-*) are set on the
+   .battlefield-split CONTAINER by GameView.tsx from
+   cardFit.applyPaneCardSizing's --pane-card-<pane>-* :root variables, and fall
+   back to the shared sizes when no per-pane sizing is live. Custom properties
+   inherit, so every card inside the pane — battlefield thumbs, hand cards,
+   library card-back, side-zones — picks up the pane's scale while the OTHER
+   pane keeps its own. As one pane's budget grows the other's shrinks: the two
+   battlefields scale against each other, never together. Multiplayer (no split
+   element) is untouched. The intermediates live on the container (an ANCESTOR)
+   because a custom property may not reference another property re-defined on
+   the SAME element (the pane's --card-width override) — that self-reference is
+   a cycle and resolves to the guaranteed-invalid value. */
+[data-split-pane="opponent"] {
+    --card-width: var(--pane-width);
+    --card-height: var(--pane-height);
+    --card-overlap: var(--pane-overlap);
+    --card-width-sm: var(--pane-width-sm);
+    --card-height-sm: var(--pane-height-sm);
+    --card-sm-width: var(--pane-sm-width);
+}
+
+[data-split-pane="me"] {
+    --card-width: var(--pane2-width);
+    --card-height: var(--pane2-height);
+    --card-overlap: var(--pane2-overlap);
+    --card-width-sm: var(--pane2-width-sm);
+    --card-height-sm: var(--pane2-height-sm);
+    --card-sm-width: var(--pane2-sm-width);
+}
+
+/* ── 4-player row split ──
+   The 2-column multiplayer grid keeps its columns; the split trades the two
+   GRID ROWS' heights via the inline gridTemplateRows (`<top>fr auto
+   <bottom>fr`, GameLayout) and the strip's `auto` row carries the drag
+   divider. The divider wrapper IS that grid row (grid-column 1/-1), stacked
+   strip-then-handle exactly like the 1v1 element order (.battlefield-split).
+   Each board ROW re-scopes its --card-* variables from the --pane-* /
+   --pane2-* intermediates set on #players-grid (an ANCESTOR — same
+   mechanism and same reason as [data-split-pane] above): the top row uses
+   the opponent size, the bottom row the me size, so as one row grows the
+   other's cards shrink. `nth-of-type` counts only the board articles, so the
+   divider wrapper sits between the rows without affecting the split. */
+.players-row-split-divider {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+#players-grid.players-row-split > article:nth-of-type(-n+2) {
+    --card-width: var(--pane-width);
+    --card-height: var(--pane-height);
+    --card-overlap: var(--pane-overlap);
+    --card-width-sm: var(--pane-width-sm);
+    --card-height-sm: var(--pane-height-sm);
+    --card-sm-width: var(--pane-sm-width);
+}
+
+#players-grid.players-row-split > article:nth-of-type(n+3) {
+    --card-width: var(--pane2-width);
+    --card-height: var(--pane2-height);
+    --card-overlap: var(--pane2-overlap);
+    --card-width-sm: var(--pane2-width-sm);
+    --card-height-sm: var(--pane2-height-sm);
+    --card-sm-width: var(--pane2-sm-width);
+}
+
+/* Horizontal variant of the shared resize handle: same accent styling,
+   row-resize cursor, full-width strip scaled with the UI chrome. */
+.resize-handle-h {
+    flex: 0 0 auto;
+    height: calc(6px * var(--ui-scale, 1));
+    cursor: row-resize;
+}
+
+/* ── Multiplayer board modes ──
+   .board-mode-maximized: opponents as a compact chip strip along the TOP of
+   the center column; my board fills the rest (the .players-grid board keeps
+   its `1fr` row). Chips carry avatar + name + life; informational in maximize
+   mode, clickable in focus mode (cursor there is set inline). The chips strip
+   is content-sized — auto height, so it can never overlay cards.
+   .opponent-chips-focus: the focus variant of the strip — same chips plus the
+   ◀/▶/✕ controls, rendered ABOVE the reused 1v1 split (outside it, so the
+   split's flex geometry is untouched). */
+.board-mode-maximized {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+.board-mode-focus {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+.opponent-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: calc(4px * var(--ui-scale, 1));
+    padding: calc(2px * var(--ui-scale, 1)) calc(4px * var(--ui-scale, 1));
+    flex: 0 0 auto;
+}
+
+.opponent-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    background: var(--bg-elevated);
+    font-size: 0.72rem;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+.opponent-chip-avatar {
+    border-radius: 3px;
+    display: block;
+}
+
+.opponent-chip-life {
+    color: var(--text-primary);
+    font-weight: 700;
+}
+
+.opponent-chip.chip-active-turn {
+    border-color: rgba(var(--hl-active-turn, 59, 130, 246), 0.9);
+    box-shadow: 0 0 6px rgba(var(--hl-active-turn, 59, 130, 246), 0.35);
+}
+
+.focus-control {
+    padding: 1px 7px;
+    border: 1px solid var(--border-default);
+    border-radius: 5px;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 0.72rem;
+    line-height: 1.4;
+}
+
+.focus-control:hover {
+    border-color: var(--accent-primary);
+}
+
+.game-center .players-area {
+    flex: 1;
+    min-height: 0;
+}
+
+/* Right panel: tabs + prompts */
+.game-right {
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid var(--border-default);
+    overflow: hidden;
+    min-width: 0;  /* allow JS to control width */
+}
+
+/* ── Right panel tabs ── */
+.right-tabs {
+    display: flex;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border-default);
+}
+
+.right-tab {
+    flex: 1;
+    padding: 0.35rem 0.5rem;
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 600;
+    transition: all 0.15s;
+}
+
+.right-tab:hover {
+    color: var(--text-primary);
+}
+
+.right-tab.active {
+    color: var(--accent-primary);
+    border-bottom-color: var(--accent-primary);
+    background: var(--bg-surface);
+}
+
+.tab-panel {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: none;
+    flex-direction: column;
+}
+
+.tab-panel.active {
+    display: flex;
+}
+
+/* ── Game log ── */
+.game-log-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.4rem;
+    font-size: 0.8rem;
+}
+
+/* ── Chat panel ── */
+.chat-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+.chat-input-row {
+    flex-shrink: 0;
+    padding: 0.4rem;
+    display: flex;
+    gap: 0.3rem;
+}
+
+/* ── LLM panel ── */
+.llm-sub-tabs {
+    display: flex;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border-default);
+}
+
+.llm-sub-tab {
+    padding: 0.25rem 0.5rem;
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.llm-sub-tab.active {
+    color: var(--accent-primary);
+    border-bottom-color: var(--accent-primary);
+    background: var(--bg-surface);
+}
+
+.llm-content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0.4rem;
+    font-size: 0.8rem;
+    font-family: monospace;
+}
+
+.llm-message {
+    margin-bottom: 0.4rem;
+    padding: 0.3rem;
+    border-radius: 4px;
+}
+
+.llm-message .llm-role {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 0.15rem;
+}
+
+.llm-message.llm-user .llm-role { color: #5b9bd5; }
+.llm-message.llm-assistant .llm-role { color: #57a773; }
+.llm-message.llm-system .llm-role { color: #c4956c; }
+
+.llm-message .llm-content {
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.4;
+}
+
+.llm-message.llm-system .llm-content {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+}
+
+.llm-streaming {
+    color: var(--accent-primary);
+    font-style: italic;
+    font-size: 0.7rem;
+    padding: 0.3rem;
+}
+
+.llm-pulse {
+    display: inline-block;
+    animation: llm-pulse 1s infinite;
+}
+
+@keyframes llm-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+/* ── Action buttons panel ── */
+.action-buttons {
+    flex-shrink: 0;
+    padding: calc(0.5rem * var(--ui-scale, 1));
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border-default);
+    display: flex;
+    flex-direction: column;
+    gap: calc(0.3rem * var(--ui-scale, 1));
+}
+
+/* ── Players area ── */
+.players-area {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.players-grid {
+    display: grid;
+    grid-template-rows: 1fr 1fr;
+    flex: 1;
+    min-height: 0;
+    gap: 4px;
+    padding: 4px;
+}
+
+/* ── Revealed cards section ── */
+.revealed-section {
+    display: none;
+    margin-bottom: 0.5rem;
+    padding: 0.25rem;
+}
+
+/* ── Connection status ── */
+.connection-status {
+    padding: 1rem;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    text-align: center;
+}
+
+.connection-status.error {
+    color: var(--color-danger);
+}
+
+/* ── Position layer for combat arrows ── */
+.position-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 50;
+}
+
+/* === Tables grid (stock lobby parity) ===
+   Dense grid of all open/running tables, mirroring the stock desktop client's
+   tables panel (Deck Type | Name | Seats | Owner | Game Type | Status |
+   Password | Created | Skill | Rated | Action). Component:
+   react/src/components/lobby/TablesGrid.tsx; row model: utils/tablesGrid.ts. */
+.tables-grid-wrap {
+    margin-top: 1rem;
+}
+
+/* Filter row: [All|Matches|Tournaments] segmented control + checkboxes. */
+.tables-grid-filters {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.tables-grid-kind {
+    display: inline-flex;
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.tables-grid-kind-btn {
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    border: none;
+    padding: calc(0.25rem * var(--ui-scale, 1)) calc(0.75rem * var(--ui-scale, 1));
+    cursor: pointer;
+    font-size: 0.8rem;
+}
+
+.tables-grid-kind-btn + .tables-grid-kind-btn {
+    border-left: 1px solid var(--border-default);
+}
+
+.tables-grid-kind-btn.active {
+    background: var(--accent-primary);
+    color: white;
+}
+
+.tables-grid-filter-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.tables-grid-seated-hint {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+/* The page can't scroll (body overflow hidden) — the grid scrolls internally,
+   same model as .lobby-view. */
+.tables-grid-scroll {
+    overflow-y: auto;
+    max-height: calc(var(--vh, 100vh) * 0.6);
+}
+
+.tables-grid {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+
+.tables-grid th {
+    text-align: left;
+    padding: calc(0.25rem * var(--ui-scale, 1)) calc(0.5rem * var(--ui-scale, 1));
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-default);
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.tables-grid th.tables-grid-sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.tables-grid th.tables-grid-sortable:hover {
+    color: var(--text-primary);
+}
+
+.tables-grid td {
+    padding: calc(0.2rem * var(--ui-scale, 1)) calc(0.5rem * var(--ui-scale, 1));
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 18ch;
+}
+
+.tables-grid-row:hover td {
+    background: var(--bg-surface);
+}
+
+.tables-grid-row-mine td {
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+}
+
+.tables-grid-name,
+.tables-grid-owner {
+    max-width: 16ch;
+}
+
+.tables-grid-type {
+    max-width: 24ch;
+}
+
+.tables-grid-password,
+.tables-grid-rated {
+    text-align: center;
+    color: var(--accent-primary);
+    font-weight: 600;
+}
+
+.tables-grid-created {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Seat badge: green joinable, blue full, grey dueling (stock behaviour). */
+.tables-grid-badge {
+    display: inline-block;
+    min-width: 3ch;
+    text-align: center;
+    padding: 0 0.35rem;
+    border-radius: 4px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.tables-grid-badge-joinable {
+    background: var(--accent-success);
+    color: white;
+}
+
+.tables-grid-badge-full {
+    background: #2f6fd0;
+    color: white;
+}
+
+.tables-grid-badge-dueling {
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-default);
+}
+
+/* Action column: right-aligned dense buttons. */
+.tables-grid-action {
+    text-align: right;
+    max-width: none;
+}
+
+.tables-grid-action .btn {
+    min-width: 4.5rem;
+    padding: calc(0.15rem * var(--ui-scale, 1)) calc(0.5rem * var(--ui-scale, 1));
+}
+
+.tables-grid-empty {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 1rem;
+}

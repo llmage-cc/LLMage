@@ -81,8 +81,9 @@ class TravelThroughCaradhrasEffect extends OneShotEffect {
         int redhornPass = voteHandler.getVoteCount(true);
         int minesOfMoria = voteHandler.getVoteCount(false);
         if (redhornPass > 0) {
+            // "for each ... vote" — a partial find (0..redhornPass) is allowed (CR 701.23b)
             new SearchLibraryPutInPlayEffect(new TargetCardInLibrary(
-                    redhornPass, StaticFilters.FILTER_CARD_BASIC_LAND
+                    0, redhornPass, StaticFilters.FILTER_CARD_BASIC_LAND
             ), true).apply(game, source);
         }
         if (minesOfMoria > 0) {

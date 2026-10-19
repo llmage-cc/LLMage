@@ -6,8 +6,14 @@ import javax.swing.*;
 
 import mage.cards.decks.DeckFileFilter;
 import mage.client.MageFrame;
+import mage.client.SessionHandler;
 import mage.client.deck.generator.DeckGenerator;
+import mage.client.dialog.LLMConfigDialog;
 import mage.client.util.ClientDefaultSettings;
+import mage.players.PlayerType;
+import mage.players.LLMPlayerConfig;
+
+import org.apache.log4j.Logger;
 
 /**
  *
@@ -15,7 +21,10 @@ import mage.client.util.ClientDefaultSettings;
  */
 public class NewPlayerPanel extends javax.swing.JPanel {
 
+    private static final Logger logger = Logger.getLogger(NewPlayerPanel.class);
     private final JFileChooser fcSelectDeck;
+    private LLMPlayerConfig llmPlayerConfig;
+    private LLMConfigDialog llmConfigDialog;
 
     public NewPlayerPanel() {
         initComponents();
@@ -24,6 +33,14 @@ public class NewPlayerPanel extends javax.swing.JPanel {
         fcSelectDeck.addChoosableFileFilter(new DeckFileFilter("dck", "XMage's deck files (*.dck)"));
         this.txtPlayerDeck.setText("");
         this.txtPlayerName.setText(ClientDefaultSettings.computerName);
+
+        // Type selector and LLM button hidden by default — shown only for player 1 in NewTableDialog
+        cbPlayerType.setVisible(false);
+        btnLlmConfig.setVisible(false);
+        // Argentum-P1 training-deck picker: shown only for the COMPUTER_P1 seat
+        // type, so a P1 seat can only be given one of the 55 training decks
+        // (P1TrainingDeckPicker). Hidden for every other type.
+        btnP1Deck.setVisible(false);
     }
 
     public void setPlayerName(String playerName) {
@@ -31,7 +48,12 @@ public class NewPlayerPanel extends javax.swing.JPanel {
         this.txtPlayerName.setEditable(false);
         this.txtPlayerName.setEnabled(false);
     }
-    
+
+    public void setPlayerNameEditable(boolean editable) {
+        this.txtPlayerName.setEditable(editable);
+        this.txtPlayerName.setEnabled(editable);
+    }
+
     protected void playerLoadDeck() {
         String lastFolder = MageFrame.getPreferences().get("lastDeckFolder", "");
         if (!lastFolder.isEmpty()) {
@@ -42,10 +64,11 @@ public class NewPlayerPanel extends javax.swing.JPanel {
             File file = fcSelectDeck.getSelectedFile();
             if (file != null) {
                 this.txtPlayerDeck.setText(file.getPath());
-            }
-            try {
-                MageFrame.getPreferences().put("lastDeckFolder", file.getCanonicalPath());
-            } catch (IOException ex) {
+                try {
+                    MageFrame.getPreferences().put("lastDeckFolder", file.getCanonicalPath());
+                } catch (IOException ex) {
+                    logger.error("Failed to save lastDeckFolder preference", ex);
+                }
             }
         }
         fcSelectDeck.setSelectedFile(null);
@@ -91,6 +114,35 @@ public class NewPlayerPanel extends javax.swing.JPanel {
         this.btnPlayerDeck.setVisible(show);
     }
 
+    /** Show the player type selector + LLM config button (used for Player 1 in NewTableDialog). */
+    public void showTypeSelector(boolean show) {
+        this.cbPlayerType.setVisible(show);
+        if (show) {
+            this.cbPlayerType.setModel(new DefaultComboBoxModel(SessionHandler.getPlayerTypes()));
+        }
+    }
+
+    /** Get the selected player type (only meaningful when type selector is visible). */
+    public PlayerType getPlayerType() {
+        if (cbPlayerType.getSelectedItem() instanceof PlayerType) {
+            return (PlayerType) cbPlayerType.getSelectedItem();
+        }
+        return PlayerType.HUMAN;
+    }
+
+    /** Set the selected player type programmatically. */
+    public void setPlayerType(PlayerType pt) {
+        cbPlayerType.setSelectedItem(pt);
+    }
+
+    public LLMPlayerConfig getLlmPlayerConfig() {
+        return llmPlayerConfig;
+    }
+
+    public void setLlmPlayerConfig(LLMPlayerConfig config) {
+        this.llmPlayerConfig = config;
+    }
+
     /**
      * This method is called from within the constructor to initialize the form.
      * WARNING: Do NOT modify this code. The content of this method is always
@@ -108,6 +160,9 @@ public class NewPlayerPanel extends javax.swing.JPanel {
         btnGenerate = new javax.swing.JButton();
         lblLevel = new javax.swing.JLabel();
         spnLevel = new javax.swing.JSpinner();
+        cbPlayerType = new javax.swing.JComboBox();
+        btnLlmConfig = new javax.swing.JButton();
+        btnP1Deck = new javax.swing.JButton();
 
         lblPlayerName.setText("Name:");
 
@@ -123,10 +178,27 @@ public class NewPlayerPanel extends javax.swing.JPanel {
 
         spnLevel.setModel(new javax.swing.SpinnerNumberModel(2, 1, 10, 1));
 
+        cbPlayerType.addActionListener(evt -> cbPlayerTypeActionPerformed(evt));
+
+        btnLlmConfig.setText("LLM Config...");
+        btnLlmConfig.setToolTipText("Configure LLM model and settings for this player");
+        btnLlmConfig.addActionListener(evt -> btnLlmConfigActionPerformed(evt));
+
+        btnP1Deck.setText("Training deck...");
+        btnP1Deck.setToolTipText("Pick one of the 55 Argentum-P1 training decks (this seat type only)");
+        btnP1Deck.addActionListener(evt -> btnP1DeckActionPerformed(evt));
+
         javax.swing.GroupLayout layout = new javax.swing.GroupLayout(this);
         this.setLayout(layout);
         layout.setHorizontalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+            .addGroup(layout.createSequentialGroup()
+                .addComponent(cbPlayerType, javax.swing.GroupLayout.PREFERRED_SIZE, 166, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addComponent(btnLlmConfig, javax.swing.GroupLayout.PREFERRED_SIZE, 110, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addComponent(btnP1Deck, javax.swing.GroupLayout.PREFERRED_SIZE, 120, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addGap(0, 0, Short.MAX_VALUE))
             .addGroup(layout.createSequentialGroup()
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
                     .addGroup(layout.createSequentialGroup()
@@ -152,6 +224,11 @@ public class NewPlayerPanel extends javax.swing.JPanel {
         layout.setVerticalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addGroup(layout.createSequentialGroup()
+                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.CENTER)
+                    .addComponent(cbPlayerType, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                    .addComponent(btnLlmConfig, javax.swing.GroupLayout.PREFERRED_SIZE, 25, javax.swing.GroupLayout.PREFERRED_SIZE)
+                    .addComponent(btnP1Deck, javax.swing.GroupLayout.PREFERRED_SIZE, 25, javax.swing.GroupLayout.PREFERRED_SIZE))
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
                     .addComponent(txtPlayerName, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
                     .addComponent(lblPlayerName)
@@ -168,11 +245,56 @@ public class NewPlayerPanel extends javax.swing.JPanel {
 
     private void btnPlayerDeckActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnPlayerDeckActionPerformed
         playerLoadDeck();
-}//GEN-LAST:event_btnPlayerDeckActionPerformed
+    }//GEN-LAST:event_btnPlayerDeckActionPerformed
 
     private void btnGenerateActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnGenerateActionPerformed
         generateDeck();
     }//GEN-LAST:event_btnGenerateActionPerformed
+
+    private void cbPlayerTypeActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_cbPlayerTypeActionPerformed
+        PlayerType pt = getPlayerType();
+        if (pt != PlayerType.HUMAN) {
+            this.txtPlayerName.setEditable(false);
+            this.txtPlayerName.setEnabled(false);
+            if (this.txtPlayerName.getText().equals(ClientDefaultSettings.computerName)
+                    || this.txtPlayerName.getText().isEmpty()
+                    || this.txtPlayerName.getText().equals(SessionHandler.getUserName())) {
+                this.txtPlayerName.setText(ClientDefaultSettings.computerName);
+            }
+            // Ensure deck elements are visible for AI player too
+            showDeckElements(true);
+        } else {
+            this.txtPlayerName.setEditable(true);
+            this.txtPlayerName.setEnabled(true);
+            this.txtPlayerName.setText(SessionHandler.getUserName());
+            // Ensure deck elements are visible for human player
+            showDeckElements(true);
+        }
+        this.btnLlmConfig.setVisible(pt == PlayerType.COMPUTER_LLM);
+        // Argentum-P1 seat: offer ONLY the training decks. This is the desktop
+        // counterpart of the web proxy's P1 seat picker; the server is still the
+        // authority (TableController.P1DeckRestriction rejects anything else).
+        this.btnP1Deck.setVisible(pt == PlayerType.COMPUTER_P1);
+        this.revalidate();
+        this.repaint();
+    }//GEN-LAST:event_cbPlayerTypeActionPerformed
+
+    private void btnP1DeckActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnP1DeckActionPerformed
+        String path = P1TrainingDeckPicker.pick(this);
+        if (path != null) {
+            this.txtPlayerDeck.setText(path);
+        }
+    }//GEN-LAST:event_btnP1DeckActionPerformed
+
+    private void btnLlmConfigActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnLlmConfigActionPerformed
+        if (llmConfigDialog == null) {
+            llmConfigDialog = new LLMConfigDialog();
+        }
+        llmConfigDialog.loadFrom(llmPlayerConfig != null ? llmPlayerConfig : LLMPlayerConfig.defaults());
+        // Non-modal mode: setVisible(true) returns immediately. Use callback.
+        llmConfigDialog.setSaveListener(cfg -> { this.llmPlayerConfig = cfg; });
+        llmConfigDialog.showDialog();
+    }//GEN-LAST:event_btnLlmConfigActionPerformed
 
     // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JButton btnGenerate;
@@ -183,6 +305,9 @@ public class NewPlayerPanel extends javax.swing.JPanel {
     private javax.swing.JSpinner spnLevel;
     private javax.swing.JTextField txtPlayerDeck;
     private javax.swing.JTextField txtPlayerName;
+    private javax.swing.JComboBox cbPlayerType;
+    private javax.swing.JButton btnLlmConfig;
+    private javax.swing.JButton btnP1Deck;
     // End of variables declaration//GEN-END:variables
 
 }

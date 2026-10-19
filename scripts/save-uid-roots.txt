@@ -1,0 +1,17 @@
+# save-uid-roots.txt — reference .game corpus the serialVersionUID manifest was derived from.
+#
+# One directory or file per line; '#' comments and blank lines ignored. Consumed by
+#   scripts/check-save-uid-manifest.sh --write-manifest
+# Passed to scripts/SerialSaveScope.java --manifest --reference, where each entry contributes the
+# classes its saves actually carry. Classes a save carries that the static field walk cannot see
+# (runtime-polymorphic reachability, e.g. card effect classes) are added to the manifest as
+# 'observed' rows and pinned like any other.
+#
+# THIS PATH IS A LOCAL RESEARCH CORPUS, not part of the deploy. When it is absent the scope is
+# still complete for every class already in scripts/serial-uid-manifest.txt (the existing manifest
+# is always fed back in as a scope seed), so regeneration without it is lossless; only *new*
+# corpus-only classes would be missed. See the scope notes in check-save-uid-manifest.sh.
+#
+# The corpus used for the 2026-10-02 manifest — 35 deployment saves + 7 local saves, three
+# mutually exclusive build generations (the evidence behind this whole gate):
+/path/to/your/replay-corpus

@@ -43,6 +43,17 @@
             <outputDirectory>/</outputDirectory>
         </fileSet>
         <fileSet>
+            <filtered>false</filtered>
+            <directory>../</directory>
+            <includes>
+                <include>NOTICE</include>
+                <include>THIRD-PARTY-NOTICES.md</include>
+                <include>LICENSES/*.txt</include>
+            </includes>
+            <outputDirectory>/</outputDirectory>
+            <fileMode>0644</fileMode>
+        </fileSet>
+        <fileSet>
             <filtered>true</filtered>
             <directory>${project.build.directory}/docs/</directory>
             <includes>

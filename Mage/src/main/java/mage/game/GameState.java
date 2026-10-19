@@ -55,6 +55,14 @@ import java.util.stream.Collectors;
  */
 public class GameState implements Serializable, Copyable<GameState> {
 
+    // Pin the serial version so .game replay files survive class changes
+    // (adding/removing methods). Upstream (magefree/mage) never pinned this,
+    // so any class edit silently broke old saves with an InvalidClassException
+    // (e.g. the Sep 9 save that fails to load after a downstream change). The
+    // value below matches the *unmanaged* serialVersionUID the existing replay
+    // corpus was written with — bump only on a deliberate field change.
+    private static final long serialVersionUID = 6338686059336481407L;
+
     private static final Logger logger = Logger.getLogger(GameState.class);
     private static final ThreadLocalStringBuilder threadLocalBuilder = new ThreadLocalStringBuilder(1024);
 
@@ -116,6 +124,153 @@ public class GameState implements Serializable, Copyable<GameState> {
     private boolean hasDayNight = false;
     private boolean isDaytime = true;
     private boolean reverseTurnOrder = false;
+
+    // Full game message log — records every informPlayers/fireInformEvent call.
+    // Enabled for LLM-seated games (their prompt context) and, since the replay
+    // capture work, for every game
+    // that can be saved — the replay viewer's Game Log tab reads it.
+    private final List<String> gameLog = new ArrayList<>();
+    private boolean gameLogEnabled = false;
+
+    /**
+     * Number of log entries that existed as of this snapshot — the FLAT replay
+     * shape: only the LIVE
+     * state carries the list (the save's top-level GameState holds it once);
+     * the per-frame snapshots GameStates.save() takes carry just this count.
+     * The viewer slices the final log client-side (entries 0..count-1) for
+     * "the log at frame N".
+     */
+    private int gameLogCount = 0;
+
+    /** Bumped each time the log is truncated (turn rollback / undo restore). */
+    private int gameLogTruncateEpoch = 0;
+    /**
+     * Keep-targets of every truncation, in order: entry j (0-based) is the size
+     * truncation #(j+1) cut the log back to. A snapshot's epoch says how many
+     * truncations preceded it; the replay's safe slice for such a snapshot is
+     * min(its count, min(targets[epoch:])) — entries below the smallest later
+     * target are provably the same lines in the final log, everything above may
+     * have been replaced by the re-played timeline. Usually empty (truncation is
+     * rollback/undo-only) and copied by reference only when non-empty.
+     */
+    private List<Integer> gameLogTruncationTargets = new ArrayList<>();
+
+    public List<String> getGameLog() { return gameLog; }
+
+    /**
+     * Append a game-log line.
+     * <p>
+     * Synchronized on the list's own monitor. The append path runs on
+     * game-event threads (LLMGameLogCollector.onGameLog via DataCollectorServices)
+     * while readers copy the log from other threads; before this, a plain
+     * {@code gameLog.add()} raced those copies — the observed failure mode is
+     * ConcurrentModificationException from an iterator over a list captured
+     * while an append landed, on the game-end reflection path.
+     * The readers already
+     * take this exact monitor when snapshotting:
+     * LLMPlayer.copyLogWithRetry ({@code synchronized (log)}),
+     * LLMGameSerializer.buildPrompt ({@code synchronized (state.getGameLog())}),
+     * so the append honoring the same monitor makes the race impossible rather
+     * than merely survivable.
+     * <p>
+     * Deliberately NOT {@code CopyOnWriteArrayList} (O(n) per append on the hot
+     * informPlayers path, and {@code truncateGameLog}'s subList clear is
+     * unsupported there) and not a new lock object (readers across three
+     * modules already lock the list itself). Exactly one monitor is taken and
+     * no other lock is acquired while holding it, so no lock cycle exists.
+     */
+    public void addGameLog(String message) {
+        if (!gameLogEnabled) {
+            return;
+        }
+        synchronized (gameLog) {
+            gameLog.add(message);
+        }
+    }
+
+    public void setGameLogEnabled(boolean v) { this.gameLogEnabled = v; }
+    public boolean isGameLogEnabled() { return gameLogEnabled; }
+
+    /**
+     * Effective entry count of this state: the list size when the state carries
+     * the live list, else the count recorded when the snapshot was taken.
+     */
+    public int getGameLogCount() { return gameLog.isEmpty() ? gameLogCount : gameLog.size(); }
+
+    public int getGameLogTruncateEpoch() { return gameLogTruncateEpoch; }
+
+    /**
+     * Size of the replay-safe log slice for a snapshot taken at
+     * {@code epoch} with {@code count} entries: the count, capped by the
+     * smallest truncation keep-target that came AFTER the snapshot (entries
+     * below it cannot have been replaced by a re-played timeline).
+     */
+    public int getGameLogSafeSlice(int epoch, int count) {
+        List<Integer> targets = truncationTargets();
+        int safe = count;
+        for (int i = epoch; i < targets.size(); i++) {
+            safe = Math.min(safe, targets.get(i));
+        }
+        return Math.max(0, safe);
+    }
+
+    public int getGameLogTruncationCount() { return truncationTargets().size(); }
+
+    /** Keep-target of truncation #{@code index} (0-based), for tests/inspection. */
+    public int getGameLogTruncationTarget(int index) {
+        return truncationTargets().get(index);
+    }
+
+    /**
+     * Move a log-index cursor back over truncations it has not seen yet:
+     * returns {@code cursor} capped at the smallest keep-target of every
+     * truncation after {@code seenEpoch}. Used by LLMPlayer, whose prompt
+     * cursor is an index — after a rollback the re-played events must count as
+     * NEW again, or the LLM is told "no new events" for the rest of the game.
+     */
+    public int getGameLogCursor(int seenEpoch, int cursor) {
+        List<Integer> targets = truncationTargets();
+        int result = Math.max(0, cursor);
+        for (int i = seenEpoch; i < targets.size(); i++) {
+            result = Math.min(result, targets.get(i));
+        }
+        return result;
+    }
+
+    /**
+     * The truncation ledger, never null. A .game written before this field
+     * existed deserializes it as null (Java sets absent fields to their default,
+     * bypassing initializers) — lazily restore the invariant instead of NPEing
+     * on an old replay.
+     */
+    private List<Integer> truncationTargets() {
+        if (gameLogTruncationTargets == null) {
+            gameLogTruncationTargets = new ArrayList<>();
+        }
+        return gameLogTruncationTargets;
+    }
+
+    /**
+     * Drop log entries from index {@code targetSize} on — the log half of a
+     * rollback/undo restore (GameImpl.rollbackTurnsExecution / restoreState).
+     * The aborted timeline's lines describe actions that did not happen; kept,
+     * they double-log every re-played turn in the replay. Bumps the truncation
+     * epoch so LLMPlayer can move its prompt cursor back (it tracks the log by
+     * index and would otherwise never show the re-played events again).
+     *
+     * @param targetSize log size as of the restore point
+     * @return number of entries removed (0 when the log is already at/below it)
+     */
+    public int truncateGameLog(int targetSize) {
+        if (targetSize >= gameLog.size()) {
+            return 0;
+        }
+        int removed = gameLog.size() - targetSize;
+        gameLog.subList(targetSize, gameLog.size()).clear();
+        gameLogTruncateEpoch++;
+        gameLogTruncationTargets.add(targetSize);
+        return removed;
+    }
 
     private int applyEffectsCounter; // Upcounting number of each applyEffects execution
 
@@ -192,6 +347,19 @@ public class GameState implements Serializable, Copyable<GameState> {
         this.hasDayNight = state.hasDayNight;
         this.isDaytime = state.isDaytime;
         this.reverseTurnOrder = state.reverseTurnOrder;
+        // FLAT replay shape:
+        // a snapshot does NOT carry the log list — only the live GameState does
+        // (and the save's top-level GameState holds it once). Copying the list
+        // into every per-frame snapshot summed to 2.5 MB of duplicated log text
+        // to carry 15 KB of distinct content on a real 401-state save. The
+        // per-frame gameLogCount is what the replay viewer slices on.
+        this.gameLogCount = state.getGameLogCount();
+        this.gameLogEnabled = state.gameLogEnabled;
+        this.gameLogTruncateEpoch = state.gameLogTruncateEpoch;
+        // Shared BY REFERENCE on purpose: the ledger is append-only history, and
+        // a snapshot must be able to see truncations that happen AFTER it was
+        // taken (they cap its replay-safe slice — see getGameLogSafeSlice).
+        this.gameLogTruncationTargets = state.gameLogTruncationTargets;
     }
 
     public void clearOnGameRestart() {
@@ -233,6 +401,13 @@ public class GameState implements Serializable, Copyable<GameState> {
         persistentCardCopySources.clear();
         usePowerInsteadOfToughnessForDamageLethalityFilters.clear();
         permanentOrderNumber = 0;
+        gameLog.clear();
+        // A Karn restart discards lines that earlier frames counted. Record it
+        // as a truncation to zero: the ledger then caps every earlier frame's
+        // replay-safe slice at 0, and LLMPlayer's prompt cursor (an index) moves
+        // back to 0 so the LLM reads the new log from its start.
+        gameLogTruncateEpoch++;
+        gameLogTruncationTargets.add(0);
     }
 
     public void restoreForRollBack(GameState state) {
@@ -288,6 +463,12 @@ public class GameState implements Serializable, Copyable<GameState> {
         this.hasDayNight = state.hasDayNight;
         this.isDaytime = state.isDaytime;
         this.reverseTurnOrder = state.reverseTurnOrder;
+        // NOTE: the game log is deliberately NOT restored here. Callers that
+        // restore a snapshot truncate it explicitly first
+        // (GameImpl.restoreState for undo/auto-restore, and
+        // GameImpl.rollbackTurnsExecution for turn rollback) — the rollback
+        // path must order the truncation BEFORE its own announcement line so
+        // the announcement survives. See GameState.truncateGameLog.
     }
 
     @Override

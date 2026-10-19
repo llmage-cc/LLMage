@@ -163,7 +163,7 @@ public abstract class PlayerImpl implements Player, Serializable {
 
     // TODO: rework turn controller to use single list (see other todos)
     //  see PlayerUnderControlTest
-    //protected Stack<UUID> allTurnControllers = new Stack<>();
+    //protected Stack<UUID> allTurnControllers = new Stack<>;
     protected boolean isGameUnderControl = true; // TODO: replace with allTurnControllers.isEmpty
     protected UUID turnController; // null on own control TODO: replace with allTurnControllers.last
     protected List<UUID> turnControllers = new ArrayList<>(); // TODO: remove
@@ -321,7 +321,7 @@ public abstract class PlayerImpl implements Player, Serializable {
 
         this.passed = player.isPassed();
 
-        // Don't restore more global states. If restored they are probably cause for unintended draws (https://github.com/magefree/mage/issues/1205).
+        // Don't restore more global states. If restored they are probably cause for unintended draws.
 //        this.wins = player.hasWon();
 //        this.loses = player.hasLost();
 //        this.left = player.hasLeft();
@@ -1346,7 +1346,7 @@ public abstract class PlayerImpl implements Player, Serializable {
             return false;
         }
 
-        // Use ability copy to avoid problems with targets and costs on recast (issue https://github.com/magefree/mage/issues/5189).
+        // Use ability copy to avoid problems with targets and costs on recast.
         SpellAbility ability = originalAbility.copy();
         Set<MageIdentifier> allowedIdentifiers = originalAbility.spellCanBeActivatedNow(getId(), game);
         ability.setControllerId(getId());
@@ -3029,8 +3029,26 @@ public abstract class PlayerImpl implements Player, Serializable {
                 count = Math.min(searchingLibrary.count(target.getFilter(), game), librarySearchLimit);
             }
 
+            // Fail-Safe: an under-minimum search must never degrade into a pick
+            // outside the caller's filter (Infernal Tutor finding a card it
+            // shouldn't, Opposition-Agent exploitation.
+            // 701.23b: a search of a hidden zone for cards with a STATED QUALITY
+            // (filter with predicates, see TargetCardInLibrary's setRequired call)
+            // never forces the searcher to find them, so when the search can't
+            // even match the caller's minimum there is no legal choice at all:
+            // skip the choose call and let the search find nothing. The minimum
+            // must NOT be relaxed to the match count here (that permissive path
+            // allowed a partial find of an "exactly N" search).
+            // 701.23d: a search for a QUANTITY of cards only ("search your library
+            // for three cards") must find that many or as many as possible, so
+            // there the minimum still relaxes to the count actually present.
+            boolean noLegalChoice = false;
             if (count < target.getMinNumberOfTargets()) {
-                newTarget.setMinNumberOfTargets(count);
+                if (target.getFilter().hasPredicates()) {
+                    noLegalChoice = true;
+                } else {
+                    newTarget.setMinNumberOfTargets(count);
+                }
             }
 
             // handling Panglacial Wurm - cast cards while searching from own library
@@ -3042,7 +3060,8 @@ public abstract class PlayerImpl implements Player, Serializable {
                 }
             }
 
-            if (newTarget.choose(Outcome.Neutral, searchingController.getId(), targetPlayer.getId(), source, game)) {
+            if (!noLegalChoice
+                    && newTarget.choose(Outcome.Neutral, searchingController.getId(), targetPlayer.getId(), source, game)) {
                 target.getTargets().clear();
                 for (UUID targetId : newTarget.getTargets()) {
                     target.add(targetId, game);
@@ -5457,6 +5476,22 @@ public abstract class PlayerImpl implements Player, Serializable {
         if (card == null) {
             return false;
         }
+        // Honest-message guard: `fromZone` is a
+        // caller-supplied claim used ONLY by the log line below - the move itself always
+        // removes the card from the zone the game state records for its id
+        // (CardImpl.moveToExile / PermanentImpl.moveToExile read that zone from the state,
+        // never from this parameter). When the claim is BATTLEFIELD but the live state has
+        // no permanent with that id, the target was not on the battlefield at resolve time
+        // (a stale target carried across an auto-restore/rollback, or a battlefield entry
+        // removed without a zone-map update - see the OUTSIDE branch of
+        // PlayerImpl.moveCards), and asserting "moves X from battlefield to the exile zone"
+        // would report a transition that did not happen. Capture the live zone and the
+        // battlefield presence BEFORE the move (after it the card is in exile) and report
+        // the attempt honestly instead. The flag feeds the log line only: no behavior change.
+        Zone liveFromZone = game.getState().getZone(card.getId());
+        boolean claimedBattlefieldButGone = Zone.BATTLEFIELD.equals(fromZone)
+                && game.getPermanent(card.getId()) == null
+                && game.getPermanentEntering(card.getId()) == null;
         boolean result = false;
         if (card.moveToExile(exileId, exileName, source, game)) {
             if (card instanceof Permanent)
@@ -5489,9 +5524,23 @@ public abstract class PlayerImpl implements Player, Serializable {
                     } else {
                         visibleName = "a " + GameLog.getNeutralObjectIdName(EmptyNames.FACE_DOWN_CARD.getObjectName(), card.getId());
                     }
-                    game.informPlayers(this.getLogName() + " moves " + visibleName
-                            + (fromZone != null ? " from " + fromZone.toString().toLowerCase(Locale.ENGLISH) : "")
-                            + " to the exile zone" + CardUtil.getSourceLogName(game, source, card.getId()));
+                    if (claimedBattlefieldButGone) {
+                        // Honest-message guard: the caller
+                        // claimed the card was a battlefield permanent, but the live state has no
+                        // permanent with that id, so no battlefield -> exile transition happened.
+                        // Report the attempt (and, when the state's zone differs from the claim,
+                        // the zone the card actually came from) instead of a false transition.
+                        game.informPlayers(this.getLogName() + " attempted to move " + visibleName
+                                + " from battlefield to the exile zone (already gone"
+                                + (liveFromZone != null && liveFromZone != Zone.BATTLEFIELD
+                                ? "; actually in " + liveFromZone.toString().toLowerCase(Locale.ENGLISH)
+                                : "")
+                                + ')' + CardUtil.getSourceLogName(game, source, card.getId()));
+                    } else {
+                        game.informPlayers(this.getLogName() + " moves " + visibleName
+                                + (fromZone != null ? " from " + fromZone.toString().toLowerCase(Locale.ENGLISH) : "")
+                                + " to the exile zone" + CardUtil.getSourceLogName(game, source, card.getId()));
+                    }
                 }
 
             }

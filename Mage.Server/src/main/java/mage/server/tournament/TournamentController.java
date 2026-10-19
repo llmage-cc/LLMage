@@ -19,6 +19,7 @@ import mage.game.tournament.Tournament;
 import mage.game.tournament.TournamentPairing;
 import mage.game.tournament.TournamentPlayer;
 import mage.players.PlayerType;
+import mage.players.LLMPlayerConfig;
 import mage.server.User;
 import mage.server.draft.DraftController;
 import mage.server.managers.ManagerFactory;
@@ -30,6 +31,8 @@ import mage.view.ChatMessage.SoundToPlay;
 import mage.view.TournamentView;
 import org.apache.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.UUID;
@@ -231,6 +234,9 @@ public class TournamentController {
 
     private void startMatch(TournamentPairing pair, MatchOptions matchOptions) {
         try {
+            // Build pair-specific LLM configs from TournamentPlayer objects
+            matchOptions.setLlmPlayerConfigs(buildPairLlmConfigs(pair.getPlayer1(), pair.getPlayer2()));
+
             TableManager tableManager = managerFactory.tableManager();
             Table table = tableManager.createTable(managerFactory.gamesRoomManager().getMainRoomId(), matchOptions);
             table.setTournamentSubTable(this.tableId);
@@ -272,6 +278,15 @@ public class TournamentController {
 
     private void startMultiplayerMatch(MultiplayerRound round, MatchOptions matchOptions) {
         try {
+            // Build round-specific LLM configs from all players in the round
+            List<LLMPlayerConfig> configs = new ArrayList<>();
+            for (TournamentPlayer player : round.getAllPlayers()) {
+                if (player.getPlayerType() == PlayerType.COMPUTER_LLM && player.getLlmPlayerConfig() != null) {
+                    configs.add(player.getLlmPlayerConfig());
+                }
+            }
+            matchOptions.setLlmPlayerConfigs(configs);
+
             TableManager tableManager = managerFactory.tableManager();
             Table table = tableManager.createTable(managerFactory.gamesRoomManager().getMainRoomId(), matchOptions);
             table.setTournamentSubTable(this.tableId);
@@ -553,5 +568,20 @@ public class TournamentController {
 
     public UUID getTableId() {
         return tableId;
+    }
+
+    /**
+     * Build a list of LLMPlayerConfigs for a pair of tournament players.
+     * Only includes configs for COMPUTER_LLM players that have a non-null config.
+     */
+    private List<LLMPlayerConfig> buildPairLlmConfigs(TournamentPlayer p1, TournamentPlayer p2) {
+        List<LLMPlayerConfig> configs = new ArrayList<>();
+        if (p1.getPlayerType() == PlayerType.COMPUTER_LLM && p1.getLlmPlayerConfig() != null) {
+            configs.add(p1.getLlmPlayerConfig());
+        }
+        if (p2.getPlayerType() == PlayerType.COMPUTER_LLM && p2.getLlmPlayerConfig() != null) {
+            configs.add(p2.getLlmPlayerConfig());
+        }
+        return configs;
     }
 }

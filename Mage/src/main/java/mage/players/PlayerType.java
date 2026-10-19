@@ -11,7 +11,12 @@ public enum PlayerType {
     HUMAN("Human", false, true),
     COMPUTER_DRAFT_BOT("Computer - draftbot", true, false),
     COMPUTER_MONTE_CARLO("Computer - monte carlo", true, true),
-    COMPUTER_MAD("Computer - mad", true, true);
+    COMPUTER_MAD("Computer - mad", true, true),
+    COMPUTER_LLM("Computer - LLM", true, true),
+    // Argentum P1 policy-net seat: the description MUST equal the config.xml
+    // playerType name ("Computer - P1"). isWorkablePlayer=true so it counts as a
+    // real AI opponent (maxAiOpponents in config.xml is 15, plenty of headroom).
+    COMPUTER_P1("Computer - P1", true, true);
 
     final String description;
     final boolean isAI;

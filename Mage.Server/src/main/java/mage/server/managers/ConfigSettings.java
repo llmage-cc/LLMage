@@ -60,6 +60,15 @@ public interface ConfigSettings {
 
     String getMailFromAddress();
 
+    String getLLMReasoningEffort();
+
+    String getLLMTranscriptDir();
+
+    String getLLM2Endpoint();
+    String getLLM2Model();
+    String getLLM2ReasoningEffort();
+    String getLLM2ApiKey();
+
     List<Plugin> getPlayerTypes();
 
     List<GamePlugin> getGameTypes();

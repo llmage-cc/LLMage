@@ -54,6 +54,67 @@ public class ConditionalManaTest extends CardTestPlayerBase {
         assertHandCount(playerA, "Silvercoat Lion", 1); // player A could not cast Silvercoat Lion because the conditional mana is not available
     }
 
+    /**
+     * // As Secluded Courtyard enters the battlefield, choose a creature type.
+     * // {T}: Add {C}.
+     * // {T}: Add one mana of any color. Spend this mana only to cast a creature spell of the chosen
+     * // type or activate an ability of a creature or creature card of the chosen type.
+     * <p>
+     * A non-creature card that merely carries the chosen creature subtype (Kindred enchantment
+     * Bitterblossom, subtype Faerie) must not be payable with that mana. The creature-type choice is
+     * made for "Faerie" and the conditional mana is floated into the mana pool, so the playability
+     * check has to evaluate Courtyard's own condition (same gate as Cavern of Souls /
+     * CreatureCastManaCondition).
+     */
+    @Test
+    public void testSecludedCourtyardNotCastableForKindredEnchantment() {
+        // Secluded Courtyard - Land, enters untapped, {T}: Add {C} / {T}: Add one mana of any color with a restriction
+        addCard(Zone.HAND, playerA, "Secluded Courtyard", 1);
+        // {T}: Add {C} - covers the generic part {1} of Bitterblossom's cost
+        addCard(Zone.BATTLEFIELD, playerA, "Wastes", 1);
+        // Bitterblossom - Kindred Enchantment {1}{B}, subtype Faerie (NOT a creature spell)
+        addCard(Zone.HAND, playerA, "Bitterblossom", 1);
+
+        playLand(1, PhaseStep.PRECOMBAT_MAIN, playerA, "Secluded Courtyard");
+        setChoice(playerA, "Faerie"); // chosen creature type
+        // float the Courtyard's conditional mana so the playable check must check its condition
+        activateManaAbility(1, PhaseStep.PRECOMBAT_MAIN, playerA, "{T}: Add one mana of ");
+        setChoice(playerA, "Black");
+
+        checkPlayableAbility("kindred enchantment", 1, PhaseStep.PRECOMBAT_MAIN, playerA, "Cast Bitterblossom", false);
+
+        setStopAt(1, PhaseStep.BEGIN_COMBAT);
+        execute();
+
+        assertHandCount(playerA, "Bitterblossom", 1); // must not be castable with the Courtyard mana
+    }
+
+    /**
+     * Positive control for the same condition: a creature of the chosen type stays castable off the
+     * Courtyard's conditional mana (compare Cavern of Souls behavior).
+     */
+    @Test
+    public void testSecludedCourtyardCastableForCreatureOfChosenType() {
+        addCard(Zone.HAND, playerA, "Secluded Courtyard", 1);
+        // Faerie Miscreant - Creature {U}, subtype Faerie (creature of the chosen type)
+        addCard(Zone.HAND, playerA, "Faerie Miscreant", 1);
+
+        playLand(1, PhaseStep.PRECOMBAT_MAIN, playerA, "Secluded Courtyard");
+        setChoice(playerA, "Faerie"); // chosen creature type
+        // float the Courtyard's conditional mana (this is the only mana source for the {U})
+        activateManaAbility(1, PhaseStep.PRECOMBAT_MAIN, playerA, "{T}: Add one mana of ");
+        setChoice(playerA, "Blue");
+
+        checkPlayableAbility("creature spell", 1, PhaseStep.PRECOMBAT_MAIN, playerA, "Cast Faerie Miscreant", true);
+
+        castSpell(1, PhaseStep.PRECOMBAT_MAIN, playerA, "Faerie Miscreant");
+
+        setStopAt(1, PhaseStep.BEGIN_COMBAT);
+        execute();
+
+        assertPermanentCount(playerA, "Faerie Miscreant", 1);
+    }
+
     @Test
     public void testWorkingWithReflectingPool() {
         addCard(Zone.BATTLEFIELD, playerA, "Cavern of Souls", 1); // can give {C] or {any} mana ({any} with restrictions)
@@ -420,7 +481,10 @@ public class ConditionalManaTest extends CardTestPlayerBase {
         waitStackResolved(1, PhaseStep.PRECOMBAT_MAIN, true);
         castSpell(1, PhaseStep.PRECOMBAT_MAIN, playerA, "Gigantosaurus");
         castSpell(1, PhaseStep.PRECOMBAT_MAIN, playerB, "Mana Leak", "Gigantosaurus");
-        setChoice(playerA, true);
+        // No pay-or-counter dialog def: Jaya's conditional {R}{R}{R} cannot pay Mana Leak's
+        // {3} (instant/sorcery only, no other mana available), so with canPay being a real
+        // payability answer the engine no longer asks the unpayable "pay {3}?" question.
+        // The spell is countered without a dialog (asserted below); no choice is consumed.
 
         setStrictChooseMode(true);
         setStopAt(3, PhaseStep.POSTCOMBAT_MAIN);
@@ -503,5 +567,140 @@ public class ConditionalManaTest extends CardTestPlayerBase {
         execute();
 
         assertPermanentCount(playerA, "Lost Auramancers", 0);
+    }
+
+    // ── Secluded Courtyard ──
+    //
+    // These pin the ENGINE side of the web client's auto-tap fix: the play_mana prompt now
+    // carries a per-source `manaPayableForThisCost` flag, and that flag is derived from
+    // exactly the gate exercised here — ConditionalMana.apply for the object being paid
+    // (the same call PlayerImpl.canPayMinimumManaCost makes, PlayerImpl.java:3899). The
+    // engine and the flag must agree, so the payment rules are asserted directly.
+
+    /**
+     * Secluded Courtyard's conditional any-colour mana pays for a creature spell of the
+     * chosen type — here an Elf, paid entirely from the Courtyard.
+     */
+    @Test
+    public void testSecludedCourtyardPayableForThisCostChosenTypeCreature() {
+        // As Secluded Courtyard enters, choose a creature type.
+        // {T}: Add {C}.
+        // {T}: Add one mana of any color. Spend this mana only to cast a creature spell of the
+        // chosen type or activate an ability of a creature or creature card of the chosen type.
+        addCard(Zone.HAND, playerA, "Secluded Courtyard");
+        // Creature — Elf Scout {G}
+        addCard(Zone.HAND, playerA, "Gladecover Scout");
+
+        playLand(1, PhaseStep.PRECOMBAT_MAIN, playerA, "Secluded Courtyard");
+        setChoice(playerA, "Elf"); // the creature type the Courtyard names
+        setChoice(playerA, "Green"); // the colour its any-colour mana is spent as
+
+        castSpell(1, PhaseStep.PRECOMBAT_MAIN, playerA, "Gladecover Scout");
+
+        setStopAt(1, PhaseStep.BEGIN_COMBAT);
+        execute();
+
+        assertPermanentCount(playerA, "Gladecover Scout", 1);
+        // The Courtyard is the only possible source of the {G}, so it must have been tapped.
+        assertTapped("Secluded Courtyard", true);
+    }
+
+    /**
+     * …and it pays for nothing else: "a creature spell of the chosen type" can never be
+     * satisfied by a non-creature spell, whichever type was chosen. With the Courtyard the
+     * only untapped source, the spell must be unplayable — the restriction is exactly what
+     * the auto-tapper relies on the engine to enforce, and it is what the per-source
+     * `payableForThisCost` flag reports back.
+     * <p>
+     * DISABLED 2026-09-28: the OFFER side cannot honor this yet for an
+     * UNTAPPED source with more than one mana ability — ManaOptions' union branch rebuilds the
+     * options with a plain Mana.add and drops the conditional, so the restricted any-colour land
+     * still advertises a castable non-creature spell. Reproduces identically
+     * with Cavern of Souls, i.e. it is a PRE-EXISTING ENGINE defect, not
+     * this card and not this change.
+     * <p>The per-source
+     * `payableForThisCost` flag is unaffected: it is evaluated per ability via
+     * ConditionalMana.apply and reports false correctly (the autotap harness covers it).
+     * Re-enable together with the engine fix.
+     */
+    @Test // re-enabled with the ManaOptions fix (RED before the fix, GREEN after)
+    public void testSecludedCourtyardPayableForThisCostRejectsNonCreature() {
+        // As Secluded Courtyard enters, choose a creature type.
+        // {T}: Add {C}.
+        // {T}: Add one mana of any color. Spend this mana only to cast a creature spell of the
+        // chosen type or activate an ability of a creature or creature card of the chosen type.
+        addCard(Zone.HAND, playerA, "Secluded Courtyard");
+        // Instant {R} — not a creature spell, so the conditional mana may not pay for it
+        addCard(Zone.HAND, playerA, "Lightning Bolt");
+
+        playLand(1, PhaseStep.PRECOMBAT_MAIN, playerA, "Secluded Courtyard");
+        setChoice(playerA, "Human"); // the chosen type is irrelevant: the spell is not a creature
+
+        checkPlayableAbility("conditional mana is restricted to the chosen creature type",
+                1, PhaseStep.PRECOMBAT_MAIN, playerA, "Cast Lightning Bolt", false);
+
+        setStopAt(1, PhaseStep.BEGIN_COMBAT);
+        execute();
+
+        assertHandCount(playerA, "Lightning Bolt", 1);
+        assertTapped("Secluded Courtyard", false);
+    }
+
+    /**
+     * Cavern of Souls twin of the Courtyard case above — same engine shape, second card that
+     * a probe reported: an UNTAPPED Cavern of Souls ({T}: Add {C} plus {T}: Add
+     * one mana of any colour restricted to creature spells of the chosen type) must not offer a
+     * non-creature spell. Before the ManaOptions union fix the union branch dropped the
+     * conditional ({C} and {Any} survived as plain mana, conditions gone), so Duress was
+     * offered — the "not offered" check below is the discriminating negative control.
+
+     */
+    @Test
+    public void testCavernOfSoulsUntappedRejectsNonCreatureSpell() {
+        // As Cavern of Souls enters the battlefield, choose a creature type.
+        // {T}: Add {C}.
+        // {T}: Add one mana of any color. Spend this mana only to cast a creature spell of the
+        // chosen type, and that spell can't be countered.
+        addCard(Zone.HAND, playerA, "Cavern of Souls");
+        // Sorcery {B} — not a creature spell, so the conditional mana may not pay for it
+        addCard(Zone.HAND, playerA, "Duress");
+
+        playLand(1, PhaseStep.PRECOMBAT_MAIN, playerA, "Cavern of Souls");
+        setChoice(playerA, "Human"); // the chosen type is irrelevant: the spell is not a creature
+
+        checkPlayableAbility("untapped Cavern of Souls must not offer a non-creature spell",
+                1, PhaseStep.PRECOMBAT_MAIN, playerA, "Cast Duress", false);
+
+        setStopAt(1, PhaseStep.BEGIN_COMBAT);
+        execute();
+
+        assertHandCount(playerA, "Duress", 1);
+        assertTapped("Cavern of Souls", false);
+    }
+
+    /**
+     * Positive control for the Cavern twin: a creature spell of the chosen type stays offered
+     * and castable off the untapped Cavern's conditional mana (the union must keep the
+     * condition, not remove the mana).
+     */
+    @Test
+    public void testCavernOfSoulsUntappedAllowsChosenTypeCreature() {
+        addCard(Zone.HAND, playerA, "Cavern of Souls");
+        // Elite Vanguard — Creature {W}, subtype Human (of the chosen type)
+        addCard(Zone.HAND, playerA, "Elite Vanguard");
+
+        playLand(1, PhaseStep.PRECOMBAT_MAIN, playerA, "Cavern of Souls");
+        setChoice(playerA, "Human");
+
+        checkPlayableAbility("chosen type creature stays offered", 1, PhaseStep.PRECOMBAT_MAIN,
+                playerA, "Cast Elite Vanguard", true);
+        castSpell(1, PhaseStep.PRECOMBAT_MAIN, playerA, "Elite Vanguard");
+        setChoice(playerA, "White"); // the colour its any-colour mana is spent as
+
+        setStopAt(1, PhaseStep.BEGIN_COMBAT);
+        execute();
+
+        assertPermanentCount(playerA, "Elite Vanguard", 1);
+        assertTapped("Cavern of Souls", true); // the Cavern was the only possible source
     }
 }

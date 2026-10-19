@@ -701,6 +701,43 @@ public class MageServerImpl implements MageServer {
         });
     }
 
+    /**
+     * Client-key LLM bridge: the browser returned
+     * a provider response for a pending exchange. Completes the plugin's
+     * future via the shared Mage.Common registry. Session-scoped like the
+     * sendPlayer* family; no game state touched.
+     */
+    @Override
+    public void llmDecision(final String sessionId, final mage.interfaces.LLMPromptPayload.Decision decision) throws MageException {
+        execute("llmDecision", sessionId, () -> {
+            // Session validity: the decision's originating session must be live.
+            Optional<User> user = managerFactory.sessionManager().getUser(sessionId);
+            if (user.isPresent()) {
+                mage.interfaces.LLMBridgeRegistry.complete(decision);
+            } else {
+                logger.warn("llmDecision from expired session: sessionId=" + sessionId
+                        + " requestId=" + (decision != null ? decision.requestId : null));
+            }
+        });
+    }
+
+    /**
+     * Client-key LLM bridge: the browser reported a failed provider call
+     * (HTTP error, network error, CORS refusal). Fails the pending future.
+     */
+    @Override
+    public void llmError(final String sessionId, final mage.interfaces.LLMPromptPayload.Failure failure) throws MageException {
+        execute("llmError", sessionId, () -> {
+            Optional<User> user = managerFactory.sessionManager().getUser(sessionId);
+            if (user.isPresent()) {
+                mage.interfaces.LLMBridgeRegistry.fail(failure);
+            } else {
+                logger.warn("llmError from expired session: sessionId=" + sessionId
+                        + " requestId=" + (failure != null ? failure.requestId : null));
+            }
+        });
+    }
+
     @Override
     public void sendPlayerManaType(final UUID gameId, final UUID playerId, final String sessionId, final ManaType data) throws MageException {
         execute("sendPlayerManaType", sessionId, () -> {
@@ -967,6 +1004,19 @@ public class MageServerImpl implements MageServer {
     }
 
     @Override
+    public void replaySeek(final UUID gameId, final String sessionId, final int stateIndex) throws MageException {
+        execute("seekTo", sessionId, () -> {
+            Optional<Session> session = managerFactory.sessionManager().getSession(sessionId);
+            if (!session.isPresent()) {
+                logger.error("Session not found : " + sessionId);
+            } else {
+                UUID userId = session.get().getUserId();
+                managerFactory.replayManager().seekTo(gameId, userId, stateIndex);
+            }
+        });
+    }
+
+    @Override
     public ServerState getServerState() throws MageException {
         // called one time per login, must work without auth and with diff versions
         try {
@@ -1005,7 +1055,31 @@ public class MageServerImpl implements MageServer {
         });
     }
 
+    @Override
+    public boolean cheatSetup(final UUID gameId, final String sessionId, final UUID playerId, final Map<String, List<String>> cardsByZone) throws MageException {
+        return executeWithResult("cheatSetup", sessionId, new ActionWithBooleanResult() {
+            @Override
+            public Boolean execute() throws MageException {
+                if (!testMode) {
+                    return false;
+                }
+                Optional<Session> session = managerFactory.sessionManager().getSession(sessionId);
+                if (session.isPresent()) {
+                    managerFactory.gameManager().cheatSetup(gameId, session.get().getUserId(), playerId, cardsByZone);
+                    return true;
+                }
+                return false;
+            }
+        });
+    }
+
     public void handleException(Exception ex) throws MageException {
+        // Exceptions crossing the RPC boundary are flattened into message-only
+        // MageExceptions (stack traces lost). Log the full trace server-side
+        // BEFORE flattening, otherwise failures like reflection wrappers are
+        // undiagnosable from mageserver.log.
+        logger.error("RPC call failed (client receives message only): " + ex.getMessage(), ex);
+
         if (ex.getMessage() != null && !ex.getMessage().equals("No message")) {
             throw new MageException(ex.getMessage());
         }
@@ -1013,9 +1087,6 @@ public class MageServerImpl implements MageServer {
         if (ex instanceof ConcurrentModificationException) {
             // how-to fix: game objects must be accessible by game thread only, all other threads must work with copies
             logger.error("wrong threads sync error", ex);
-        } else {
-            // TODO: on logs spamming (e.g. connection problems) move it inside condition block above
-            logger.error("unknown error", ex);
         }
 
     }

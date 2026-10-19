@@ -1,0 +1,23 @@
+4 Mountain
+4 Forest
+4 Plains
+2 Island
+2 Swamp
+4 Grizzly Bears
+4 Hill Giant
+4 Air Elemental
+3 Earth Elemental
+3 Savannah Lions
+3 Merfolk of the Pearl Trident
+3 Scathe Zombies
+3 Hurloon Minotaur
+3 Goblin Balloon Brigade
+3 War Mammoth
+2 Lightning Bolt
+2 Giant Growth
+2 Counterspell
+2 Healing Salve
+2 Unsummon
+2 Disenchant
+1 Fireball
+1 Stone Rain

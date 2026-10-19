@@ -11,6 +11,12 @@ import mage.constants.CardType;
  * @author muz
  */
 public final class LotusToken extends TokenImpl {
+    // Pinned 2026-10-02 against silent UID drift orphaning the .game replay corpus
+    // the third instance is
+    // This is the value this class
+    // computed when the pin was added: it FREEZES the wire UID, so later field/method/superclass
+    // edits no longer change it. A deliberate format break must re-derive it explicitly.
+    private static final long serialVersionUID = -6603041440864492621L;
 
     public LotusToken() {
         super("Lotus", "Lotus token");

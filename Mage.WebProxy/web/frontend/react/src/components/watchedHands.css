@@ -1,0 +1,68 @@
+/* Watched-hand viewer — styles travel with the component
+   (imported from WatchedHandsView.tsx), same no-shared-footprint pattern as
+   viewDeck.css. The window chrome itself is the shared .float-window set
+   (styles/popups.css); only the switch rail and the card row are new here. */
+
+/* ── Switch rail — the desktop's "Switch Hand" button, one per granted seat. ──
+   Fixed to the bottom-centre of the board, above the hand sections, so it never
+   covers the right rail's prompts. Only rendered with 2+ grants (the desktop
+   shows its single Switch Hand button whenever more than one hand is available). */
+.watched-hands-switch {
+    position: fixed;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    z-index: 350;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 8px;
+    padding: 0.25rem 0.4rem;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    max-width: calc(var(--vw) - 32px);
+}
+
+.hand-switch-btn {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    padding: calc(0.2rem * var(--ui-scale, 1)) calc(0.5rem * var(--ui-scale, 1));
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.hand-switch-btn:hover {
+    border-color: var(--accent-primary);
+}
+
+/* The seat whose hand the viewer is showing. */
+.hand-switch-btn.active {
+    border-color: var(--accent-primary);
+    background: var(--bg-active, #243056);
+}
+
+/* ── The viewer window ── */
+.watched-hand-window {
+    /* Slightly smaller default floor than the zone windows: a hand is a short
+       horizontal row, not a full-card grid. useFloatWindow's persisted-size
+       restore still wins once the user resizes it. */
+    min-width: 320px;
+}
+
+/* Cards are inert tiles in a single horizontally-scrolling row, matching the
+   board's own hand row (game-renderer.css .hand-cards-row) — the granted hand
+   reads exactly like a hand, it just never highlights or plays anything. */
+.watched-hand-cards {
+    align-items: flex-start;
+    min-height: 0;
+}
+
+.watched-hand-cards .card-thumb {
+    cursor: default;
+}

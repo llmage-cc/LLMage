@@ -73,8 +73,11 @@ class LimDulsVaultEffect extends OneShotEffect {
                 player.shuffleLibrary(source, game);
                 player.putCardsOnTopOfLibrary(cards, game, source, true);
             }
-            // AI must stop using it as infinite
-            if (player.isComputer()) {
+            // AI must stop using it as infinite — but only a plain AI, whose
+            // chooseUse is an unconditional yes. An LLM-controlled seat answers
+            // the prompt for real and can decline; truncating it here would
+            // deny the seat the ability's entire repeat clause.
+            if (player.isComputer() && !player.isLlmControlled()) {
                 break;
             }
         } while (doAgain);

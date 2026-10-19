@@ -594,7 +594,7 @@ public interface Player extends MageItem, Copyable<Player> {
 
     void skip();
 
-    // priority, undo, ...
+    // priority, undo...
     void sendPlayerAction(PlayerAction passPriorityAction, Game game, Object data);
 
     int getStoredBookmark();
@@ -1304,6 +1304,35 @@ public interface Player extends MageItem, Copyable<Player> {
      * @return whether the player has strictChooseMode enabled
      */
     public default boolean getStrictChooseMode() {
+        return false;
+    }
+
+    /**
+     * Whether this player is currently streaming LLM output (thinking).
+     * Only meaningful for LLM-driven players; all others return false.
+     * Used by the server to force live game-state updates while the LLM is working.
+     */
+    default boolean isStreaming() {
+        return false;
+    }
+
+    /**
+     * Whether this seat is driven by an LLM player that answers real decision
+     * prompts (as opposed to a plain AI whose every choice is a canned
+     * {@code aiXXX} default, e.g. {@code ComputerPlayer.chooseUse} always
+     * returning true).
+     * <p>
+     * Only meaningful for computer-controlled seats. Cards use it to tell a
+     * seat that can legitimately chain a "you may repeat this any number of
+     * times" loop — the LLM can decline, or deck itself, so the loop is
+     * bounded by real decisions — from a plain AI that would spin on its
+     * unconditional yes forever. Plain AI seats keep the legacy single-shot
+     * behavior; LLM-driven seats get the full chain.
+     * <p>
+     * Default false: every existing AI implementation is unaffected. The LLM
+     * player plugin overrides it to true (see {@code LLMPlayer}).
+     */
+    default boolean isLlmControlled() {
         return false;
     }
 

@@ -4,6 +4,8 @@ import mage.MageException;
 import mage.abilities.Ability;
 import mage.cards.Card;
 import mage.cards.Cards;
+import mage.cards.repository.CardInfo;
+import mage.cards.repository.CardRepository;
 import mage.choices.Choice;
 import mage.collectors.DataCollectorServices;
 import mage.constants.ManaType;
@@ -11,6 +13,7 @@ import mage.constants.PlayerAction;
 import mage.game.Game;
 import mage.game.GameOptions;
 import mage.game.GameState;
+import mage.game.PutToBattlefieldInfo;
 import mage.game.Table;
 import mage.game.command.Plane;
 import mage.game.events.Listener;
@@ -43,7 +46,6 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
-import java.util.zip.GZIPOutputStream;
 
 /**
  * @author BetaSteward_at_googlemail.com, JayDi85
@@ -62,6 +64,9 @@ public class GameController implements GameCallback {
     private ScheduledExecutorService JOIN_WAITING_EXECUTOR = null;
 
     private ScheduledFuture<?> responseIdleTimeoutFuture;
+    private ScheduledFuture<?> streamingPollerFuture;
+    private int streamingPollerConsecutiveFailures = 0;
+    private static final int STREAMING_POLLER_MAX_FAILURES = 3;
     private UUID responseIdleTimeoutPlayerId;
     private final ManagerFactory managerFactory;
     protected final ScheduledExecutorService responseIdleTimeoutExecutor;
@@ -100,6 +105,18 @@ public class GameController implements GameCallback {
         this.userRequestingRollback = null;
         this.game = game;
         this.game.setSaveGame(managerFactory.configSettings().isSaveGameActivated());
+        // Replay game-log capture:
+        // every game that can be saved must accumulate the game log, not only
+        // LLM-seated games (LLMPlayer.init was previously the sole enable).
+        // Without this the saved .game carries an empty log and the replay
+        // viewer's Game Log tab can never fill. Gated on the same
+        // saveGameActivated flag that decides whether a save happens at all —
+        // no log accumulation without the save that would carry it. Enabled
+        // here (game-creation time), NOT in GameController.saveGame: by then
+        // the log is already empty.
+        if (managerFactory.configSettings().isSaveGameActivated()) {
+            game.getState().setGameLogEnabled(true);
+        }
         this.tableId = tableId;
         this.choosingPlayerId = choosingPlayerId;
         this.gameOptions = gameOptions;
@@ -107,8 +124,30 @@ public class GameController implements GameCallback {
         init();
     }
 
+    /**
+     * Read the match's llmChatPublic flag from the live table. GameController holds
+     * tableId (a game never carries MatchOptions), so this is the one reliable path.
+     * Absence of the table keeps the false default — live seats hide others' chat.
+     */
+    private boolean resolveLlmChatPublic() {
+        try {
+            mage.game.Table table = managerFactory.tableManager().getTable(tableId);
+            if (table != null && table.getMatch() != null && table.getMatch().getOptions() != null) {
+                return table.getMatch().getOptions().isLlmChatPublic();
+            }
+        } catch (Throwable t) {
+            logger.warn("resolveLlmChatPublic failed for tableId=" + tableId + ": " + t.getMessage());
+        }
+        return false;
+    }
+
     public void cleanUp() {
         stopResponseIdleTimeout();
+        stopStreamingPoller();
+        if (JOIN_WAITING_EXECUTOR != null) {
+            JOIN_WAITING_EXECUTOR.shutdownNow();
+            JOIN_WAITING_EXECUTOR = null;
+        }
         for (PriorityTimer priorityTimer : timers.values()) {
             priorityTimer.cancel();
         }
@@ -317,7 +356,7 @@ public class GameController implements GameCallback {
         GameSessionPlayer gameSession = gameSessions.get(playerId);
         String joinType;
         if (gameSession == null) {
-            gameSession = new GameSessionPlayer(managerFactory, game, userId, playerId);
+            gameSession = new GameSessionPlayer(managerFactory, game, userId, playerId, resolveLlmChatPublic());
             gameSession.startWithGameView(null); // it's null here, real default view generates on game start
             final Lock w = gameSessionsLock.writeLock();
             w.lock();
@@ -333,7 +372,42 @@ public class GameController implements GameCallback {
         user.get().addGame(playerId, gameSession);
         logger.debug("Player " + player.getName() + ' ' + playerId + " has " + joinType + " gameId: " + game.getId());
         managerFactory.chatManager().broadcast(chatId, "", game.getPlayer(playerId).getLogName() + " has " + joinType + " the game", MessageColor.ORANGE, true, game, MessageType.GAME, null);
-        checkJoinAndStart();
+        if (gameFuture == null) {
+            // Pre-start join: let the normal all-joined gate fire startGame().
+            checkJoinAndStart();
+        } else {
+            // Rejoin into an already-running game (page reload, dropped session):
+            // checkJoinAndStart() would no-op — startGame() ran long ago and the
+            // join-waiting executor is shut down — so nothing ever re-sends the
+            // client its starting state. The web client then strands on
+            // "Loading game..." forever. Re-emit
+            // GAME_INIT directly to this session, matching the forced-join fix-up
+            // path below (session.init()). Swing never hits this because it re-runs
+            // GamePanel.init + joinGame on reconnect which re-fetches state itself.
+            final GameSessionPlayer rejoinedSession = gameSession;
+            logger.info("Player " + player.getName() + " rejoined running game " + game.getId() + " — re-sending GAME_INIT");
+            managerFactory.threadExecutor().getCallExecutor().execute(rejoinedSession::init);
+            // Any ask (CHOOSE/GAME_ASK/target select...) that fired
+            // while this user was mid-reload was DROPPED — User.fireCallback ignores
+            // non-Connected users — leaving the game thread blocked in
+            // HumanPlayer.waitForResponse for an answer the player can never see.
+            // Wake the response with an empty-string answer, exactly like the
+            // forced-join fix-up path above: every ask loop re-fires its prompt on
+            // an empty response, so the (now connected) player gets the question
+            // re-delivered. Empty string is inert for every ask type: choose loops
+            // re-prompt, target loops see null UUID → re-prompt or done-if-chosen.
+            // Measured live: choose-starting-player ask fired during a
+            // page reload → game thread hung in Object.wait() forever.
+            managerFactory.threadExecutor().getCallExecutor().execute(() -> {
+                try {
+                    managerFactory.gameManager().sendPlayerString(game.getId(), userId, "");
+                } catch (Throwable t) {
+                    // CallExecutor thread — log loudly, never swallow (Fail Fast visibility)
+                    logger.error("Rejoin nudge sendPlayerString failed for " + player.getName()
+                            + " gameId=" + game.getId(), t);
+                }
+            });
+        }
     }
 
     private synchronized void startGame() {
@@ -374,6 +448,7 @@ public class GameController implements GameCallback {
             // real game start
             GameWorker worker = new GameWorker(game, choosingPlayerId, this);
             gameFuture = gameExecutor.submit(worker);
+            startStreamingPoller();
             try {
                 Thread.sleep(1000);
             } catch (InterruptedException ignore) {
@@ -499,7 +574,7 @@ public class GameController implements GameCallback {
             return false;
         }
         managerFactory.userManager().getUser(userId).ifPresent(user -> {
-            GameSessionWatcher gameWatcher = new GameSessionWatcher(managerFactory.userManager(), userId, game, false);
+            GameSessionWatcher gameWatcher = new GameSessionWatcher(managerFactory.userManager(), userId, game, false, resolveLlmChatPublic());
             gameWatcher.startWithGameView(this.defaultGameViews.get(WATCHER_SESSION_FAKE_PLAYER_ID));
             final Lock w = gameWatchersLock.writeLock();
             w.lock();
@@ -784,6 +859,64 @@ public class GameController implements GameCallback {
         }
     }
 
+    /**
+     * Places cards by name into a player's zones using the same engine the
+     * tests use (Game.cheat). Test mode only (the gate lives in
+     * MageServerImpl); zones: hand, battlefield, library, graveyard, exile.
+     */
+    public void cheatSetup(UUID playerId, Map<String, List<String>> cardsByZone) throws MageException {
+        Player player = game.getPlayer(playerId);
+        if (player == null) {
+            throw new MageException("cheatSetup: unknown player " + playerId);
+        }
+        List<Card> library = new ArrayList<>();
+        List<Card> hand = new ArrayList<>();
+        List<PutToBattlefieldInfo> battlefield = new ArrayList<>();
+        List<Card> graveyard = new ArrayList<>();
+        List<Card> exiled = new ArrayList<>();
+        if (cardsByZone != null) {
+            for (Map.Entry<String, List<String>> entry : cardsByZone.entrySet()) {
+                String zone = entry.getKey() == null ? "" : entry.getKey().toLowerCase(Locale.ENGLISH);
+                List<String> names = entry.getValue() == null ? Collections.emptyList() : entry.getValue();
+                for (String name : names) {
+                    Card card = createCheatCard(name);
+                    switch (zone) {
+                        case "library":
+                            library.add(card);
+                            break;
+                        case "hand":
+                            hand.add(card);
+                            break;
+                        case "battlefield":
+                            battlefield.add(new PutToBattlefieldInfo(card, false));
+                            break;
+                        case "graveyard":
+                            graveyard.add(card);
+                            break;
+                        case "exile":
+                        case "exiled":
+                            exiled.add(card);
+                            break;
+                        default:
+                            throw new MageException("cheatSetup: unknown zone " + entry.getKey());
+                    }
+                }
+            }
+        }
+        game.cheat(playerId, library, hand, battlefield, graveyard, Collections.emptyList(), exiled);
+    }
+
+    private static Card createCheatCard(String name) throws MageException {
+        if (name == null || name.trim().isEmpty()) {
+            throw new MageException("cheatSetup: empty card name");
+        }
+        CardInfo info = CardRepository.instance.findCard(name.trim(), true);
+        if (info == null) {
+            throw new MageException("cheatSetup: unknown card " + name);
+        }
+        return info.createCard();
+    }
+
     public void onResponseIdleTimeout(UUID playerId) {
         Player player = game.getPlayer(playerId);
         if (player != null) {
@@ -1026,6 +1159,11 @@ public class GameController implements GameCallback {
     @Override
     public void endGameWithResult(String result) {
         try {
+            // Save game for replay BEFORE table health check can remove it
+            // (post-game LLM summaries can delay the normal save path by 10+ minutes)
+            if (managerFactory.configSettings().isSaveGameActivated() && !game.isSimulation()) {
+                saveGame();
+            }
             endGame(result);
         } catch (MageException ex) {
             // never called in production logs
@@ -1056,19 +1194,35 @@ public class GameController implements GameCallback {
         ObjectOutput output = null;
         OutputStream buffer = null;
         try {
+            // Ensure saved/ directory exists
+            java.io.File savedDir = new java.io.File("saved");
+            if (!savedDir.exists()) {
+                savedDir.mkdirs();
+            }
+
+            // Note: We do NOT strip abilities before serialization anymore.
+            // Stripping abilities mutates the live card objects in the MatchPlayer's
+            // deck, which breaks game 2+ (cards lose PlayLandAbility, SpellAbility, etc.
+            // so getPlayableObjects returns 0 for everything and no actions are available).
+            // The NotSerializableException is caught below and logged — replay saves
+            // are best-effort and must not corrupt the active game state.
+
             file = new FileOutputStream("saved/" + game.getId().toString() + ".game");
             buffer = new BufferedOutputStream(file);
-            output = new ObjectOutputStream(new GZIPOutputStream(buffer));
+            output = new ObjectOutputStream(ReplayCodec.wrapForWrite(buffer));
             output.writeObject(game);
             output.writeObject(game.getGameStates());
-            logger.debug("Saved game:" + game.getId());
+            logger.debug("Saved game:" + game.getId() + " states=" + game.getGameStates().getSize());
+            ReplayMetadata.write(game, managerFactory.tableManager().getTable(tableId));
             return true;
         } catch (IOException ex) {
             logger.fatal("Cannot save game.", ex);
         } finally {
-            StreamUtils.closeQuietly(file);
+            // Close in reverse wrapping order: output (GZIP) -> buffer -> file
+            // GZIPOutputStream must close first to write the gzip trailer
             StreamUtils.closeQuietly(output);
             StreamUtils.closeQuietly(buffer);
+            StreamUtils.closeQuietly(file);
         }
         return false;
     }
@@ -1164,6 +1318,49 @@ public class GameController implements GameCallback {
             synchronized (responseIdleTimeoutFuture) {
                 responseIdleTimeoutFuture.cancel(false);
                 responseIdleTimeoutPlayerId = null;
+            }
+        }
+    }
+
+    /**
+     * Poll timer that forces live game-state updates while any LLM player is streaming.
+     * Without this, the client only sees one snapshot when the LLM finishes — the
+     * game thread is blocked during thinking, so no state-change pushes occur.
+     */
+    private void startStreamingPoller() {
+        this.streamingPollerFuture = responseIdleTimeoutExecutor.scheduleWithFixedDelay(
+                () -> {
+                    try {
+                        for (Player p : game.getPlayers().values()) {
+                            if (p.isStreaming()) {
+                                updateGame();
+                                return;
+                            }
+                        }
+                    } catch (Exception e) {
+                        streamingPollerConsecutiveFailures++;
+                        if (streamingPollerConsecutiveFailures >= STREAMING_POLLER_MAX_FAILURES) {
+                            logger.error("Streaming poller stopped after " + STREAMING_POLLER_MAX_FAILURES
+                                    + " consecutive failures (last error: " + e.getMessage() + ")", e);
+                            stopStreamingPoller();
+                        } else {
+                            logger.error("Streaming poller error (" + streamingPollerConsecutiveFailures
+                                    + "/" + STREAMING_POLLER_MAX_FAILURES + "): " + e.getMessage(), e);
+                        }
+                        return;
+                    }
+                    // Successful tick — reset the failure counter.
+                    streamingPollerConsecutiveFailures = 0;
+                },
+                500, 500, TimeUnit.MILLISECONDS
+        );
+    }
+
+    private void stopStreamingPoller() {
+        if (streamingPollerFuture != null) {
+            synchronized (streamingPollerFuture) {
+                streamingPollerFuture.cancel(false);
+                streamingPollerFuture = null;
             }
         }
     }

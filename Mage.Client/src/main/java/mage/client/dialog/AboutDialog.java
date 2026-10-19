@@ -4,6 +4,7 @@ import mage.client.MageFrame;
 import mage.utils.MageVersion;
 
 import javax.swing.*;
+import java.awt.Dimension;
 import java.awt.event.KeyEvent;
 
 /**
@@ -18,9 +19,43 @@ public class AboutDialog extends MageDialog {
             + "mnapoleon, jgod, LoneFox, drmDev, spjspj, TheElk801, L_J, JayDi85, "
             + "jmharmon, Ketsuban, hitch17, weirddan455";
 
+    /**
+     * License, provenance, third-party credits and WotC disclaimer for the public release
+
+     * Kept here instead of inside the NetBeans GEN block: the existing jLabel2 is reused,
+     * no design-time components or .form changes are required.
+     */
+    private static String creditsList = "<html>"
+            + "Courtesy: BetaSteward@googlemail.com. Site: http://xmage.de/<br>"
+            + "Based on XMage (github.com/magefree/mage), MIT License,<br>"
+            + "(c) 2010 BetaSteward and contributors. LLMage modifications<br>"
+            + "(c) 2026 jtb, MIT License. See LICENSE.txt and<br>"
+            + "THIRD-PARTY-NOTICES.md for all third-party notices.<br>"
+            + "mage-client.jar includes GPL-3.0-or-later code (CheckBoxList)<br>"
+            + "and is conveyed under GPL-3.0-or-later; see LICENSES/.<br>"
+            + "Also includes JSPF (no licence text) and deck data from mtgtop8<br>"
+            + "and the XMage sample decks. Card data by Scryfall (scryfall.com).<br>"
+            + "Card icons: Font Awesome Free (CC BY 4.0), Bootstrap Icons (MIT),<br>"
+            + "Pixabay Content License.<br>"
+            + "Magic: The Gathering is a trademark of Wizards of the Coast. This<br>"
+            + "project is not affiliated with, sponsored, or endorsed by Wizards<br>"
+            + "of the Coast."
+            + "</html>";
+
     public AboutDialog() {
         initComponents();
         panelDevs.setText(devsList + " and hundreds of other developers from https://github.com/magefree/mage/graphs/contributors");
+
+        // Credit block in the existing courtesy label (the developers list above stays untouched).
+        // The developer text pane reports its unwrapped (~2000 px) preferred width, which would make
+        // a plain repack blow the dialog up; bound it to the credit block width and repack, otherwise
+        // the taller label keeps the stale one-line height from initComponents' pack() and gets clipped.
+        // The content pane must be invalidated explicitly: this.invalidate() does not clear the
+        // GroupLayout's cached preferred size, so pack() would reuse the pre-credits geometry.
+        this.jLabel2.setText(creditsList);
+        this.scrollDevs.setPreferredSize(new Dimension(this.jLabel2.getPreferredSize().width, 161));
+        this.getContentPane().invalidate();
+        this.pack();
     }
 
     public void showDialog(MageVersion version) {

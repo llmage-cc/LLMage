@@ -70,8 +70,9 @@ class RitesOfSpringEffect extends OneShotEffect {
             return true;
         }
 
+        // "up to that many" — a partial find (0..numDiscarded) is allowed (CR 701.23b)
         TargetCardInLibrary target = new TargetCardInLibrary(
-                numDiscarded, StaticFilters.FILTER_CARD_BASIC_LAND
+                0, numDiscarded, StaticFilters.FILTER_CARD_BASIC_LAND
         );
         controller.searchLibrary(target, source, game);
         Cards cards = new CardsImpl();

@@ -392,9 +392,14 @@ public class CardView extends SimpleCardView {
             SplitCard splitCard = null;
             if (card instanceof SplitCard) {
                 splitCard = (SplitCard) card;
-                rotate = (card.getSpellAbility().getSpellAbilityType()) != SpellAbilityType.SPLIT_AFTERMATH;
+                SpellAbility splitSa = card.getSpellAbility();
+                rotate = splitSa != null && splitSa.getSpellAbilityType() != SpellAbilityType.SPLIT_AFTERMATH;
             } else if (card instanceof Spell) {
-                switch (card.getSpellAbility().getSpellAbilityType()) {
+                SpellAbility spellSa = card.getSpellAbility();
+                if (spellSa == null) {
+                    rotate = false;
+                } else {
+                    switch (spellSa.getSpellAbilityType()) {
                     case SPLIT_FUSED:
                         splitCard = (SplitCard) ((Spell) card).getCard();
                         rotate = true;
@@ -411,6 +416,7 @@ public class CardView extends SimpleCardView {
                     case MODAL_RIGHT:
                         rotate = false;
                         break;
+                }
                 }
             }
 

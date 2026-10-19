@@ -95,6 +95,7 @@ public final class GamePanel extends javax.swing.JPanel {
 
     // non modal frames
     private final Map<UUID, CardInfoWindowDialog> exiles = new HashMap<>();
+    private LLMDebugDialog llmDebugDialog; // null until first LLM game
     private final Map<String, CardInfoWindowDialog> revealed = new HashMap<>();
     private final Map<String, CardInfoWindowDialog> lookedAt = new HashMap<>();
     private final Map<String, CardsView> graveyards = new HashMap<>(); // need to sync selection
@@ -264,8 +265,9 @@ public final class GamePanel extends javax.swing.JPanel {
         // ... skip + stack
         JPanel pnlCommandsSkipAndStack = new JPanel(new BorderLayout());
         pnlCommandsSkipAndStack.setOpaque(false);
-        pnlCommandsSkipAndStack.add(pnlShortCuts, BorderLayout.NORTH);
-        pnlCommandsSkipAndStack.add(stackObjects, BorderLayout.CENTER);
+        pnlCommandsSkipAndStack.add(pnlReplay, BorderLayout.NORTH);
+        pnlCommandsSkipAndStack.add(pnlShortCuts, BorderLayout.CENTER);
+        pnlCommandsSkipAndStack.add(stackObjects, BorderLayout.SOUTH);
         // ... split: feedback + hand <|> skip + stack
         splitHandAndStack.setLeftComponent(pnlCommandsFeedbackAndHand);
         splitHandAndStack.setRightComponent(pnlCommandsSkipAndStack);
@@ -906,10 +908,11 @@ public final class GamePanel extends javax.swing.JPanel {
         }
     }
 
-    public synchronized void replayGame(UUID gameId) {
+    public synchronized void replayGame(UUID gameId, GamePane gamePane) {
         this.currentTableId = null;
         this.parentTableId = null;
         this.gameId = gameId;
+        this.gamePane = gamePane;
         this.playerId = null;
         MageFrame.addGame(gameId, this);
         this.feedbackPanel.init(gameId, bigCard);
@@ -1080,6 +1083,7 @@ public final class GamePanel extends javax.swing.JPanel {
 
         prepareSelectableView();
         updateGame();
+        updateLLMDebugWindow(game);
     }
 
     public synchronized void updateGame() {
@@ -2098,7 +2102,12 @@ public final class GamePanel extends javax.swing.JPanel {
     }
 
     public void endMessage(int messageId, GameView gameView, Map<String, Serializable> options, String message) {
-        updateGame(messageId, gameView, false, options, null);
+        if (gameView == null) {
+            logger.warn("endMessage called with null gameView; skipping game update (messageId=" + messageId + ")");
+        }
+        if (gameView != null) {
+            updateGame(messageId, gameView, false, options, null);
+        }
         hideAll();
         DialogManager.getManager(gameId).fadeOut();
 
@@ -2741,6 +2750,12 @@ public final class GamePanel extends javax.swing.JPanel {
         }
 
         pnlReplay.setOpaque(false);
+        pnlReplay.setLayout(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 2, 0));
+        pnlReplay.add(btnPreviousPlay);
+        pnlReplay.add(btnPlay);
+        pnlReplay.add(btnStopReplay);
+        pnlReplay.add(btnNextPlay);
+        pnlReplay.add(btnSkipForward);
 
         // phases buttons
         phasesContainer = new JPanel(new FlowLayout(FlowLayout.CENTER));
@@ -3261,6 +3276,40 @@ public final class GamePanel extends javax.swing.JPanel {
     private javax.swing.JLabel txtHoldPriority;
 
     private boolean imagePanelState;
+
+
+    private void updateLLMDebugWindow(GameView game) {
+        if (game.getLLMDebug() == null || game.getLLMDebug().isEmpty()) return;
+        // Only update if already visible — don't auto-create/show
+        if (llmDebugDialog == null || !llmDebugDialog.isVisible()) return;
+        llmDebugDialog.updateFromGameView(game);
+    }
+
+    /**
+     * Show the LLM debug window on demand (toolbar button, console command).
+     * Creates it if needed using the most recent game data; brings it to front.
+     */
+    public void showLLMDebugWindow() {
+        if (lastGameData == null || lastGameData.game == null) return;
+
+        // JInternalFrame can't be reshown after close — recreate if disposed
+        if (llmDebugDialog != null && llmDebugDialog.isClosed()) {
+            llmDebugDialog = null;
+        }
+
+        if (llmDebugDialog == null) {
+            llmDebugDialog = new LLMDebugDialog();
+            MageFrame.getDesktop().add(llmDebugDialog, JLayeredPane.PALETTE_LAYER);
+            llmDebugDialog.show();
+        } else if (!llmDebugDialog.isVisible()) {
+            llmDebugDialog.show();
+        } else {
+            llmDebugDialog.toFront();
+        }
+
+        // Always refresh with latest cached game state
+        llmDebugDialog.updateFromGameView(lastGameData.game);
+    }
 
 }
 

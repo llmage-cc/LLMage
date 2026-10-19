@@ -1,0 +1,214 @@
+/* games-list.css — "Current & Past Games" grid (stock lobby parity) */
+
+/* ── Toolbar ── */
+.games-list-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.4rem;
+}
+
+.games-list-search {
+    flex: 1;
+    min-width: 10rem;
+    max-width: 22rem;
+    box-sizing: border-box;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    color: var(--text-primary);
+    padding: 0.3rem 0.5rem;
+    font-size: 0.8rem;
+}
+
+.games-list-search:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.games-list-count {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+/* ── Grid ──
+   Column order: Kind | Players | Game Type | Result/Status | Duration |
+   Started | Action. minmax + min-width:0 keep long names/decks from blowing
+   the layout; the Action column never shrinks below its button. */
+.games-list-grid {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border-default);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.games-list-row {
+    display: grid;
+    grid-template-columns: 3.8rem minmax(9rem, 1.4fr) minmax(8rem, 1.2fr) minmax(8rem, 1.4fr) 5.5rem 7.5rem 7rem;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.25rem 0.5rem;
+    min-width: 0;
+}
+
+.games-list-header-row {
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-default);
+    padding: 0.35rem 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+/* ── Sort headers (ReplayBrowser's SortHeader pattern) ── */
+.games-list-sort-header {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-size: 0.72rem;
+    padding: 0;
+    text-align: left;
+}
+
+.games-list-sort-header:hover {
+    color: var(--text-primary);
+}
+
+/* ── Rows ── */
+.games-list-item {
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-default);
+    font-size: 0.8rem;
+}
+
+.games-list-item:last-child {
+    border-bottom: none;
+}
+
+.games-list-item:hover {
+    background: var(--bg-elevated);
+}
+
+.games-list-live {
+    border-left: 3px solid var(--accent-primary);
+}
+
+/* ── Kind badge ── */
+.games-list-badge {
+    display: inline-block;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+}
+
+.games-list-badge-live {
+    color: #fff;
+    background: var(--accent-primary);
+}
+
+.games-list-badge-replay {
+    color: var(--text-secondary);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+}
+
+/* ── Cells ── */
+.games-list-players {
+    min-width: 0;
+    font-size: 0.78rem;
+}
+
+.games-list-player {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.games-list-wins {
+    color: var(--text-muted);
+}
+
+.games-list-deck {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.games-list-type {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.games-list-gametype {
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.games-list-decktype {
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.games-list-rated {
+    color: var(--text-muted);
+    margin-left: 0.25rem;
+}
+
+.games-list-result {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.games-list-winner {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.games-list-duration,
+.games-list-started {
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+
+.games-list-action {
+    text-align: right;
+}
+
+.games-list-action .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.games-list-muted {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+.games-list-id {
+    font-family: monospace;
+    font-size: 0.72rem;
+}
+
+/* ── Empty state ── */
+.games-list-empty {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    padding: 0.5rem 0.25rem;
+}

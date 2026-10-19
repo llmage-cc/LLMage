@@ -1,5 +1,6 @@
 package mage.collectors;
 
+import mage.collectors.services.LLMGameLogCollector;
 import mage.collectors.services.PrintGameLogsDataCollector;
 import mage.collectors.services.SaveGameHistoryDataCollector;
 import mage.game.Game;
@@ -53,6 +54,7 @@ final public class DataCollectorServices implements DataCollector {
         // fill all possible services
         getInstance().allServices.add(new PrintGameLogsDataCollector());
         getInstance().allServices.add(new SaveGameHistoryDataCollector());
+        getInstance().allServices.add(new LLMGameLogCollector());
         logger.info(String.format("Data collectors: found %d services", getInstance().allServices.size()));
 
         // enable only needed
@@ -60,6 +62,9 @@ final public class DataCollectorServices implements DataCollector {
             boolean isDefault = false;
             isDefault |= enablePrintGameLogs && service.getServiceCode().equals(PrintGameLogsDataCollector.SERVICE_CODE);
             isDefault |= enableSaveGameHistory && service.getServiceCode().equals(SaveGameHistoryDataCollector.SERVICE_CODE);
+            // LLM game log collector is always enabled — it's a no-op for non-LLM games
+            // (GameState.gameLogEnabled gates accumulation, defaults to false)
+            isDefault |= service.getServiceCode().equals(LLMGameLogCollector.SERVICE_CODE);
             boolean isEnable = isServiceEnable(service.getServiceCode(), isDefault);
             if (isEnable) {
                 getInstance().activeServices.add(service);

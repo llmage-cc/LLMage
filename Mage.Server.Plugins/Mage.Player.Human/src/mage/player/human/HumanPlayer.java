@@ -2,11 +2,15 @@ package mage.player.human;
 
 import mage.MageIdentifier;
 import mage.MageObject;
+import mage.Mana;
+import mage.ConditionalMana;
 import mage.abilities.*;
 import mage.abilities.costs.common.SacrificeSourceCost;
 import mage.abilities.costs.common.TapSourceCost;
 import mage.abilities.costs.mana.ManaCost;
+import mage.abilities.costs.mana.ManaCosts;
 import mage.abilities.costs.mana.ManaCostsImpl;
+import mage.abilities.costs.Cost;
 import mage.abilities.effects.Effects;
 import mage.abilities.effects.RequirementEffect;
 import mage.abilities.hint.HintUtils;
@@ -64,6 +68,12 @@ import static mage.constants.PlayerAction.TRIGGER_AUTO_ORDER_RESET_ALL;
  */
 public class HumanPlayer extends PlayerImpl {
 
+    // Pinned 2026-09-30:
+    // one corpus artifact showed this class's UID drifted (stream 4662022768333651153
+    // vs local 7318666849671736822). Pin to the PRE-drift stream value so older
+    // saves stay loadable — same remedy as Deck.java.
+    private static final long serialVersionUID = 4662022768333651153L;
+
     private static final boolean ALLOW_USERS_TO_PUT_NON_PLAYABLE_SPELLS_ON_STACK_WORKAROUND = false; // warning, see workaround's info on usage
 
     // TODO: all user feedback actions executed and waited in diff threads and can't catch exceptions, e.g. on wrong code usage
@@ -111,6 +121,14 @@ public class HumanPlayer extends PlayerImpl {
 
     protected HashSet<String> autoSelectReplacementEffects = new LinkedHashSet<>(); // must be sorted
     protected ManaCost currentlyUnpaidMana;
+
+    /**
+     * play_mana prompt option key carrying the per-source
+     * "engine says this source can pay the CURRENT unpaid cost" flags
+     * (see {@link #addManaPayableForThisCost}). Value: {@code Map<String, Boolean>}
+     * keyed by permanent id.
+     */
+    public static final String OPTION_MANA_PAYABLE_FOR_THIS_COST = "manaPayableForThisCost";
 
     protected Set<UUID> triggerAutoOrderAbilityFirst = new HashSet<>();
     protected Set<UUID> triggerAutoOrderAbilityLast = new HashSet<>();
@@ -900,6 +918,13 @@ public class HumanPlayer extends PlayerImpl {
             options.put("UI.right.btn.text", "Done");
         }
         options.put("targetZone", target.getZone());
+        // Web proxy wiring: a NOT_TARGET choice
+        // (Target.notTarget — "choose a card" lists like Chrome Mox imprint) is not
+        // targeting, and the web UI must not draw targeting arrows for it. The flag
+        // is only distinguishable from the Target object itself, so it rides the
+        // prompt options to WebProxyClient.handleGameTarget (which forwards it as
+        // `not_target`). Real targeting prompts keep the flag false/unset.
+        options.put("notTarget", target.isNotTarget());
         return options;
     }
 
@@ -1695,6 +1720,7 @@ public class HumanPlayer extends PlayerImpl {
             Map<String, Serializable> options = new HashMap<>();
             prepareForResponse(game);
             if (!isExecutingMacro()) {
+                addManaPayableForThisCost(options, abilityToCast, unpaid, game);
                 game.firePlayManaEvent(playerId, "Pay " + promptText, options);
             }
             waitForResponse(game);
@@ -1723,6 +1749,159 @@ public class HumanPlayer extends PlayerImpl {
         }
 
         return false; // must return false to stop mana pay cycle with non responding player
+    }
+
+    /**
+     * Per-source "can this untapped source pay the CURRENT unpaid cost" flag for
+     * the {@code play_mana} prompt.
+     * <p>
+     * WHY: the web
+     * client's auto-tapper derives what a land can produce from the serialized
+     * rule text. A CONDITIONAL any-colour source (Secluded Courtyard, Cavern of
+     * Souls, Pillar of the Paruns, Sliver Hive …) cannot be characterised there:
+     * its production depends on the object being paid for, which only the engine
+     * knows. The client therefore refuses to tap it even when it is the only
+     * source that could pay.
+     * <p>
+     * The engine can answer the question EXACTLY, with the same gate
+     * {@code PlayerImpl.canPayMinimumManaCost} uses
+     * (PlayerImpl.java:3899 — {@link ConditionalMana#apply}). This method emits a
+     * map {@code <permanent id, payable-for-this-cost>} for every untapped
+     * permanent that owns at least one usable mana ability: a source is marked
+     * {@code true} only when the mana it can produce actually passes its own
+     * conditions for the object/cost being paid AND can pay at least one
+     * component of the unpaid cost. Everything absent or {@code false} must be
+     * treated by the client as "unknown — do not tap" (never as "tap it last").
+     * <p>
+     * Additive: the map is written into the prompt's options under
+     * {@link #OPTION_MANA_PAYABLE_FOR_THIS_COST}. Clients that ignore it (the
+     * desktop Swing client, old web builds) behave exactly as before.
+     * <p>
+     * The evaluation runs on a check-playable SIMULATION
+     * ({@link Game#createSimulationForPlayableCalc()}) so nothing here can tap a
+     * land, consume a pool item or fire a real event: the prompt the user sees
+     * must reflect the real game, unchanged.
+     * <p>
+     * The check-playable state is also LOAD-BEARING for precision, not just
+     * isolation: {@code AddConditionalManaOfAnyColorEffect.getNetMana} only
+     * attaches the condition to the mana it reports while
+     * {@link Game#inCheckPlayableState()} is true (it calls
+     * {@code manaBuilder...build()}, which produces the {@link ConditionalMana}).
+     * Outside that state the ability reports a plain wildcard {@link Mana} with
+     * no condition at all, and the {@code instanceof ConditionalMana} gate below
+     * would quietly pass every source — the exact guess this feature exists to
+     * prevent. The game copy carries the stack (GameState.java:283,
+     * SpellStack.java:150), so the spell being paid for is still visible to the
+     * condition while it is evaluated.
+     */
+    protected void addManaPayableForThisCost(Map<String, Serializable> options, Ability abilityToCast,
+            ManaCost unpaid, Game game) {
+        if (options == null || unpaid == null || game == null) {
+            return;
+        }
+        Map<String, Boolean> payable = evaluateManaPayableForThisCost(abilityToCast, unpaid, game);
+        if (!payable.isEmpty()) {
+            options.put(OPTION_MANA_PAYABLE_FOR_THIS_COST, (Serializable) payable);
+        }
+    }
+
+    /**
+     * Builds the {@code <permanent id, payable-for-this-cost>} map described in
+     * {@link #addManaPayableForThisCost}. Package-private for tests.
+     */
+    protected Map<String, Boolean> evaluateManaPayableForThisCost(Ability abilityToCast, ManaCost unpaid, Game originalGame) {
+        Map<String, Boolean> payable = new LinkedHashMap<>();
+        Game game = originalGame.createSimulationForPlayableCalc();
+        Player player = game.getPlayer(playerId);
+        if (player == null) {
+            return payable;
+        }
+        for (Permanent permanent : game.getBattlefield().getActivePermanents(playerId, game)) {
+            if (permanent.isTapped() || !permanent.isControlledBy(playerId)) {
+                // Only the player's own untapped permanents can be answered by a tap_mana send.
+                continue;
+            }
+            Abilities<ActivatedManaAbilityImpl> abilities
+                    = permanent.getAbilities(game).getAvailableActivatedManaAbilities(Zone.BATTLEFIELD, playerId, game);
+            if (abilities.isEmpty()) {
+                continue;
+            }
+            boolean any = false;
+            for (ActivatedManaAbilityImpl manaAbility : abilities) {
+                if (manaLikelyPaysCurrentCost(manaAbility, unpaid, abilityToCast, game)) {
+                    any = true;
+                    break;
+                }
+            }
+            payable.put(permanent.getId().toString(), any);
+        }
+        return payable;
+    }
+
+    /**
+     * True when the mana produced by {@code manaAbility} actually qualifies for
+     * the CURRENT unpaid cost.
+     * <p>
+     * Two gates, both engine-side:
+     * <ol>
+     * <li>every produced {@link Mana} variation is asked to prove it can pay a
+     * component of {@code unpaid} ({@link ManaCost#testPay}) — a Mountain cannot
+     * answer a {@code {W}} pip;</li>
+     * <li>conditional mana must additionally pass
+     * {@link ConditionalMana#apply} for the object being paid and the ability's
+     * mana costs — the exact call {@code PlayerImpl.canPayMinimumManaCost} makes
+     * (PlayerImpl.java:3899). Non-conditional mana has no condition and passes
+     * trivially.</li>
+     * </ol>
+     * The condition receives {@code abilityToCast.getManaCosts()} (not the unpaid
+     * remainder) because that is what the engine's own gate passes: conditions
+     * such as {@code XCostManaCondition} inspect the cost for a variable symbol,
+     * and the unpaid view drops {@code VariableManaCost}.
+     * <p>
+     * Fail-closed by construction: any exception (a condition that cannot run
+     * outside a real cast) leaves the flag {@code false}, so the client simply
+     * keeps its previous "never tap what I cannot prove" behaviour.
+     */
+    private boolean manaLikelyPaysCurrentCost(ActivatedManaAbilityImpl manaAbility, ManaCost unpaid,
+            Ability abilityToCast, Game game) {
+        try {
+            Cost costToPay = abilityToCast != null ? abilityToCast.getManaCosts() : unpaid;
+            for (Mana netMana : manaAbility.getNetMana(game)) {
+                if (!manaPaysSomeComponent(netMana, unpaid)) {
+                    continue;
+                }
+                if (netMana instanceof ConditionalMana
+                        && !((ConditionalMana) netMana).apply(abilityToCast, game, this.getId(), costToPay)) {
+                    continue;
+                }
+                return true;
+            }
+        } catch (RuntimeException ex) {
+            // A condition evaluated outside a real cast must never break the prompt.
+            logger.debug("play_mana payable check skipped for " + manaAbility.getSourceId() + ": " + ex);
+        }
+        return false;
+    }
+
+    /**
+     * True when {@code produced} could settle at least one mana symbol of
+     * {@code unpaid}. Mirrors the per-cost test the payment machinery itself uses
+     * ({@link ManaCost#testPay}), so a source is advertised as payable only when
+     * its mana has a component that could actually be spent here.
+     */
+    private static boolean manaPaysSomeComponent(Mana produced, ManaCost unpaid) {
+        if (produced == null || produced.count() == 0) {
+            return false;
+        }
+        if (unpaid instanceof ManaCosts) {
+            for (ManaCost single : ((ManaCosts<?>) unpaid)) {
+                if (single.testPay(produced)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return unpaid.testPay(produced);
     }
 
     /**

@@ -87,7 +87,29 @@ public class ExileFromHandCost extends CostImpl {
 
     @Override
     public boolean canPay(Ability ability, Ability source, UUID controllerId, Game game) {
-        return canChooseOrAlreadyChosen(ability, source, controllerId, game);
+        // CR 601.2a: the spell card moves to the stack before costs are paid (601.2f-h),
+        // so the source card cannot exile itself to pay its own alt-cost. Exclude the
+        // source card from the set of valid exile targets when checking canPay, so the
+        // alt-cost action is not offered when the source card is the only matching card
+        // in hand (e.g. Force of Will with no other blue card, Grief with no other creature).
+        // This only affects whether the action is OFFERED — the actual payment logic in
+        // pay() is unchanged, and the engine's rejection of a failing cast is correct.
+        UUID sourceCardId = source.getSourceId();
+        return this.getTargets().stream().allMatch(target -> {
+            if (target.isChosen(game)) {
+                return true;
+            }
+            // Count valid possible targets excluding the source card itself.
+            long validCount = target.possibleTargets(controllerId, source, game).stream()
+                    .filter(id -> !id.equals(sourceCardId))
+                    .count();
+            if (validCount == 0) {
+                return false;
+            }
+            // Also verify enough targets remain to meet the minimum requirement.
+            int minNeeded = target.getMinNumberOfTargets() - target.getSize();
+            return validCount >= minNeeded;
+        });
     }
 
     @Override

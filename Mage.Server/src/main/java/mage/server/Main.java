@@ -200,7 +200,6 @@ public final class Main {
         logger.info("Updating user stats DB...");
         UserStatsRepository.instance.updateUserStats();
         logger.info("Done.");
-        deleteSavedGames();
 
         int gameTypes = 0;
         for (GamePlugin plugin : config.getGameTypes()) {

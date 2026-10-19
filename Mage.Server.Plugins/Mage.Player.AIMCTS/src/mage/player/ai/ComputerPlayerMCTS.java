@@ -76,9 +76,26 @@ public class ComputerPlayerMCTS extends ComputerPlayer {
         game.getState().setPriorityPlayerId(playerId);
         game.firePriorityEvent(playerId);
         getNextAction(game, NextAction.PRIORITY);
-        Ability ability = root.getAction();
-        if (ability == null)
-            logger.fatal("null ability");
+        Ability ability = (root == null ? null : root.getAction());
+        if (ability == null) {
+            // Liveness fallback: the computed action can be missing here. getNextAction can set
+            // root to null when no tree node matches the current state and calculateActions then
+            // rebuilds an action-less root node (or the search finds no best child), so
+            // root.getAction() yields null for this state.
+            // A player without an action legally passes, so pass to yield priority and keep the
+            // game moving. This must never activate a null ability: activateAbility(null) is a
+            // no-op that returns true without passing, so priority() would claim it acted, the
+            // engine would re-fire priority for this same seat forever and the opponent would
+            // never receive priority again (the seat loops on a "null ability" and the game
+            // never advances).
+            // pass(game) is exactly what the PassAbility branch of PlayerImpl.activateAbility
+            // performs, so a computed PassAbility keeps its previous behavior.
+            logger.warn("MCTS: no action to activate for " + name
+                    + " (turn " + game.getTurnNum() + ", " + game.getTurnStepType() + ")"
+                    + " - forced pass to keep the game moving");
+            pass(game);
+            return false;
+        }
         activateAbility((ActivatedAbility) ability, game);
         if (ability instanceof PassAbility)
             return false;

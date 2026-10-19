@@ -75,13 +75,136 @@ public class GameView implements Serializable {
     // TODO: implement and support in admin tools
     private int totalErrorsCount;
     private int totalEffectsCount;
+    private List<LLMConversationView> llmDebug; // null unless LLM players present
     private int gameCycle;
 
+    /**
+     * Index of the replay state this view was built from
+     * (GameReplay.getCurrentStateIndex()); -1 for live-game views.
+     * Web-only: the desktop client never reads it. Additive 2026-09-20 so the
+     * web replay viewer can show a true position indicator instead of a
+     * delivery counter (a replay_update arrives on next AND previous).
+     */
+    private int replayStateIndex = -1;
+
+    public int getReplayStateIndex() {
+        return this.replayStateIndex;
+    }
+
+    public void setReplayStateIndex(int idx) {
+        this.replayStateIndex = idx;
+    }
+
+    /**
+     * Total number of states in the saved replay, so a viewer can size its
+     * position control without knowing the save's contents.
+     * Web-only, additive: the desktop client never reads it (same pattern as
+     * replayStateIndex). -1 when the view was not built from a replay.
+     */
+    private int replayStateCount = -1;
+
+    public int getReplayStateCount() {
+        return this.replayStateCount;
+    }
+
+    /**
+     * The replay game log (flat shape) + this frame's slice end, so a replay
+     * viewer can show "the log at frame N" without any per-frame log duplication
+     * in the save (measured:
+     * flat costs +0.10% where per-frame costs +2.46%).
+     *
+     * The log is the saved game's FINAL log, sent once with every replay frame;
+     * {@code replayGameLogCount} is how many of its entries existed at THIS
+     * frame — the viewer renders entries 0..count-1. Both are -1/empty in live
+     * GameViews (the live channel has its own `event` frames and never reads
+     * these). The desktop client ignores them, like replayStateIndex.
+     */
+    private List<String> replayGameLog = Collections.emptyList();
+    private int replayGameLogCount = -1;
+
+    public List<String> getReplayGameLog() {
+        return this.replayGameLog;
+    }
+
+    public void setReplayGameLog(List<String> log) {
+        this.replayGameLog = log != null ? log : Collections.emptyList();
+    }
+
+    public int getReplayGameLogCount() {
+        return this.replayGameLogCount;
+    }
+
+    public void setReplayGameLogCount(int count) {
+        this.replayGameLogCount = count;
+    }
+
+    public void setReplayStateCount(int count) {
+        this.replayStateCount = count;
+    }
+
+    /**
+     * SKIPPED-RANGE LLM buckets for the web replay viewer
+
+     *
+     * A replay frame's own `llmDebug` carries only the exchanges recorded at
+     * THIS frame's state index. Sequential playback delivers every index, so
+     * the client's per-index accumulation stays complete — but replay_skip (10
+     * moves) and replay_seek jump in ONE server-side step (ReplaySession
+     * .next(int)/seek → one updateGame), so the buckets of the skipped indices
+     * never reach the client and the viewer's cumulative history is missing
+     * exactly those exchanges.
+     *
+     * ReplaySession attaches this map on a forward jump: buckets for the state
+     * indices in (lastDeliveredIndex, currentIndex), each keyed by its TRUE
+     * state index, so the client merges them idempotently into its per-index
+     * store (a re-delivered index overwrites its own key — no duplicates).
+     * Null for live views and for frames that skipped nothing (additive: an
+     * older proxy/client simply never sees the field).
+     *
+     * Type note: Map<Integer, List<LLMConversationView>> — TreeMap order (state
+     * index ascending) is part of the contract so the wire payload is
+     * deterministic. The desktop client ignores it, like replayStateIndex.
+     */
+    private Map<Integer, List<LLMConversationView>> replayLLMBuckets;
+
+    public Map<Integer, List<LLMConversationView>> getReplayLLMBuckets() {
+        return replayLLMBuckets;
+    }
+
+    public void setReplayLLMBuckets(Map<Integer, List<LLMConversationView>> buckets) {
+        this.replayLLMBuckets = buckets;
+    }
+
+    /**
+     * Does the replay's GAME have at least one LLM player seat? Frame-independent
+     * (computed once from the deserialized game's players, not from any frame's
+     * own llmDebug), so the web viewer's empty-state copy can distinguish "this
+     * game has no LLM" from "this game has LLM but this frame carries no
+     * exchange".
+     * Null on live views and on saves/replays from before this field; the viewer
+     * then falls back to the exchange wording, never the live-only claim.
+     * Additive, like replayStateIndex — the desktop client ignores it.
+     */
+    private Boolean replayHasLlmPlayers;
+
+    public Boolean getReplayHasLlmPlayers() {
+        return replayHasLlmPlayers;
+    }
+
+    public void setReplayHasLlmPlayers(Boolean hasLlmPlayers) {
+        this.replayHasLlmPlayers = hasLlmPlayers;
+    }
+
     public GameView(GameState state, Game game, UUID createdForPlayerId, UUID watcherUserId) {
+        if (state == null) {
+            // Fail Fast: a null/corrupt GameState would NPE at state.getPlayers() below
+            // with no useful diagnostic. Surface the problem immediately.
+            throw new IllegalStateException("GameView constructed with null state — likely corrupt replay");
+        }
         // debug only
-        // LOGGER.info("GameView create: game cycle " + game.getState().getApplyEffectsCounter() 
-        //     + ", player " + createdForPlayerId 
-        //     + ", watcher " + watcherUserId 
+        // LOGGER.info("GameView create: game cycle " + game.getState().getApplyEffectsCounter()
+        //     + ", player " + createdForPlayerId
+        //     + ", watcher " + watcherUserId
         //     + ", thread " + Thread.currentThread().getName()
         // );
         CREATED_COUNT.incrementAndGet();
@@ -371,6 +494,32 @@ public class GameView implements Serializable {
 
     public int getTotalErrorsCount() {
         return this.totalErrorsCount;
+    }
+
+    public List<LLMConversationView> getLLMDebug() {
+        if (llmDebug == null) {
+            return null;
+        }
+        return Collections.unmodifiableList(llmDebug);
+    }
+
+    public void setLLMDebug(List<LLMConversationView> v) {
+        this.llmDebug = v;
+    }
+
+    /**
+     * Match-wide flag: may opponents/spectators see LLM chat during live play?
+     * Replays set this true unconditionally (nothing is live to leak). Each live
+     * session sets it from the match's options when building the GameView.
+     */
+    private boolean llmChatPublic = false;
+
+    public boolean isLlmChatPublic() {
+        return llmChatPublic;
+    }
+
+    public void setLlmChatPublic(boolean llmChatPublic) {
+        this.llmChatPublic = llmChatPublic;
     }
 
     public int getTotalEffectsCount() {

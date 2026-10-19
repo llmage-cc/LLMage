@@ -1,11 +1,20 @@
 package mage.client.table;
 
 import mage.cards.decks.DeckCardLists;
+import mage.cards.decks.DeckFileFilter;
+import mage.client.MageFrame;
 import mage.client.SessionHandler;
+import mage.client.deck.generator.DeckGenerator;
+import mage.client.dialog.LLMConfigDialog;
 import mage.client.util.ClientDefaultSettings;
 import mage.players.PlayerType;
+import mage.players.LLMPlayerConfig;
+
+import org.apache.log4j.Logger;
 
 import javax.swing.*;
+import java.io.File;
+import java.io.IOException;
 import java.util.UUID;
 
 /**
@@ -13,13 +22,23 @@ import java.util.UUID;
  */
 public class TournamentPlayerPanel extends javax.swing.JPanel {
 
+    private static final Logger logger = Logger.getLogger(TournamentPlayerPanel.class);
+
+    private LLMPlayerConfig llmPlayerConfig;
+    private LLMConfigDialog llmConfigDialog;
+    private final JFileChooser fcSelectDeck;
 
     /**
      * Creates new form TournamentPlayerPanel
      */
     public TournamentPlayerPanel() {
+        fcSelectDeck = new JFileChooser();
+        fcSelectDeck.setAcceptAllFileFilterUsed(false);
+        fcSelectDeck.addChoosableFileFilter(new DeckFileFilter("dck", "XMage's deck files (*.dck)"));
         initComponents();
         this.pnlPlayerName.setVisible(false);
+        this.pnlPlayerDeck.setVisible(false);
+        this.btnLlmConfig.setVisible(false);
     }
 
     public void init(int playerNum, PlayerType playerType, int playerSkill) {
@@ -47,6 +66,22 @@ public class TournamentPlayerPanel extends javax.swing.JPanel {
         return (Integer) this.spnLevel.getValue();
     }
 
+    public LLMPlayerConfig getLlmPlayerConfig() {
+        return llmPlayerConfig;
+    }
+
+    public String getDeckFile() {
+        return this.txtPlayerDeck.getText();
+    }
+
+    public void setDeckFile(String deckFile) {
+        this.txtPlayerDeck.setText(deckFile);
+    }
+
+    public void showDeckElements(boolean show) {
+        this.pnlPlayerDeck.setVisible(show);
+    }
+
     public boolean joinTournamentTable(UUID roomId, UUID tableId, DeckCardLists deckCardLists) {
         if (this.cbPlayerType.getSelectedItem() != PlayerType.HUMAN) {
             return SessionHandler.joinTournamentTable(
@@ -59,6 +94,34 @@ public class TournamentPlayerPanel extends javax.swing.JPanel {
                     "");
         }
         return true;
+    }
+
+    private void playerLoadDeck() {
+        String lastFolder = MageFrame.getPreferences().get("lastDeckFolder", "");
+        if (!lastFolder.isEmpty()) {
+            fcSelectDeck.setCurrentDirectory(new File(lastFolder));
+        }
+        int ret = fcSelectDeck.showDialog(this, "Select Deck");
+        if (ret == JFileChooser.APPROVE_OPTION) {
+            File file = fcSelectDeck.getSelectedFile();
+            if (file != null) {
+                this.txtPlayerDeck.setText(file.getPath());
+                try {
+                    MageFrame.getPreferences().put("lastDeckFolder", file.getCanonicalPath());
+                } catch (IOException ex) {
+                    logger.error("Failed to save lastDeckFolder preference", ex);
+                }
+            }
+        }
+        fcSelectDeck.setSelectedFile(null);
+    }
+
+    private void generateDeck() {
+        String path = DeckGenerator.generateDeck();
+        if (path == null) {
+            return;
+        }
+        this.txtPlayerDeck.setText(path);
     }
 
 
@@ -80,6 +143,12 @@ public class TournamentPlayerPanel extends javax.swing.JPanel {
         jLabel2 = new javax.swing.JLabel();
         jLabel3 = new javax.swing.JLabel();
         spnLevel = new javax.swing.JSpinner();
+        btnLlmConfig = new javax.swing.JButton();
+        pnlPlayerDeck = new javax.swing.JPanel();
+        lblPlayerDeck = new javax.swing.JLabel();
+        txtPlayerDeck = new javax.swing.JTextField();
+        btnPlayerDeck = new javax.swing.JButton();
+        btnGenerate = new javax.swing.JButton();
 
         jLabel1.setLabelFor(cbPlayerType);
         jLabel1.setText("Type:");
@@ -97,6 +166,10 @@ public class TournamentPlayerPanel extends javax.swing.JPanel {
         spnLevel.setModel(new javax.swing.SpinnerNumberModel(2, 1, 10, 1));
         spnLevel.setRequestFocusEnabled(false);
 
+        btnLlmConfig.setText("LLM Config...");
+        btnLlmConfig.setToolTipText("Configure LLM model and settings for this player");
+        btnLlmConfig.addActionListener(evt -> btnLlmConfigActionPerformed(evt));
+
         javax.swing.GroupLayout pnlPlayerNameLayout = new javax.swing.GroupLayout(pnlPlayerName);
         pnlPlayerName.setLayout(pnlPlayerNameLayout);
         pnlPlayerNameLayout.setHorizontalGroup(
@@ -108,7 +181,9 @@ public class TournamentPlayerPanel extends javax.swing.JPanel {
                                 .addGap(67, 67, 67)
                                 .addComponent(jLabel2)
                                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                                .addComponent(txtPlayerName, javax.swing.GroupLayout.DEFAULT_SIZE, 130, Short.MAX_VALUE))
+                                .addComponent(txtPlayerName, javax.swing.GroupLayout.DEFAULT_SIZE, 130, Short.MAX_VALUE)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(btnLlmConfig, javax.swing.GroupLayout.PREFERRED_SIZE, 110, javax.swing.GroupLayout.PREFERRED_SIZE))
         );
         pnlPlayerNameLayout.setVerticalGroup(
                 pnlPlayerNameLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
@@ -117,6 +192,39 @@ public class TournamentPlayerPanel extends javax.swing.JPanel {
                                 .addComponent(jLabel3)
                                 .addComponent(jLabel2)
                                 .addComponent(spnLevel, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
+                        .addComponent(btnLlmConfig, javax.swing.GroupLayout.Alignment.CENTER, javax.swing.GroupLayout.PREFERRED_SIZE, 25, javax.swing.GroupLayout.PREFERRED_SIZE)
+        );
+
+        lblPlayerDeck.setText("Deck:");
+
+        btnPlayerDeck.setText("...");
+        btnPlayerDeck.setToolTipText("Select a deck file");
+        btnPlayerDeck.addActionListener(evt -> playerLoadDeck());
+
+        btnGenerate.setText("Generate");
+        btnGenerate.setToolTipText("Generate a random deck");
+        btnGenerate.addActionListener(evt -> generateDeck());
+
+        javax.swing.GroupLayout pnlPlayerDeckLayout = new javax.swing.GroupLayout(pnlPlayerDeck);
+        pnlPlayerDeck.setLayout(pnlPlayerDeckLayout);
+        pnlPlayerDeckLayout.setHorizontalGroup(
+                pnlPlayerDeckLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                        .addGroup(pnlPlayerDeckLayout.createSequentialGroup()
+                                .addComponent(lblPlayerDeck)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(txtPlayerDeck, javax.swing.GroupLayout.DEFAULT_SIZE, 200, Short.MAX_VALUE)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(btnPlayerDeck, javax.swing.GroupLayout.PREFERRED_SIZE, 30, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(btnGenerate, javax.swing.GroupLayout.PREFERRED_SIZE, 90, javax.swing.GroupLayout.PREFERRED_SIZE))
+        );
+        pnlPlayerDeckLayout.setVerticalGroup(
+                pnlPlayerDeckLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                        .addGroup(pnlPlayerDeckLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
+                                .addComponent(lblPlayerDeck)
+                                .addComponent(txtPlayerDeck, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                .addComponent(btnPlayerDeck)
+                                .addComponent(btnGenerate))
         );
 
         javax.swing.GroupLayout layout = new javax.swing.GroupLayout(this);
@@ -131,29 +239,49 @@ public class TournamentPlayerPanel extends javax.swing.JPanel {
                                 .addComponent(cbPlayerType, javax.swing.GroupLayout.PREFERRED_SIZE, 150, javax.swing.GroupLayout.PREFERRED_SIZE)
                                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                                 .addComponent(pnlPlayerName, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+                        .addComponent(pnlPlayerDeck, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
         );
         layout.setVerticalGroup(
                 layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.CENTER)
-                                .addComponent(lblPlayerNum)
-                                .addComponent(jLabel1)
-                                .addComponent(cbPlayerType, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
-                        .addComponent(pnlPlayerName, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                        .addGroup(layout.createSequentialGroup()
+                                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.CENTER)
+                                        .addComponent(lblPlayerNum)
+                                        .addComponent(jLabel1)
+                                        .addComponent(cbPlayerType, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(pnlPlayerName, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(pnlPlayerDeck, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
         );
     }// </editor-fold>//GEN-END:initComponents
 
     private void cbPlayerTypeActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_cbPlayerTypeActionPerformed
         if (this.cbPlayerType.getSelectedItem() != PlayerType.HUMAN) {
             this.pnlPlayerName.setVisible(true);
+            this.pnlPlayerDeck.setVisible(true);
             this.txtPlayerName.setText(TablePlayerPanel.extractAiPlayerNumberFromLabel(this.lblPlayerNum.getText()));
             this.txtPlayerName.setEditable(false);
             this.txtPlayerName.setEnabled(false);
         } else {
             this.pnlPlayerName.setVisible(false);
+            this.pnlPlayerDeck.setVisible(false);
         }
+        // Show LLM Config button only for LLM player type
+        this.btnLlmConfig.setVisible(this.cbPlayerType.getSelectedItem() == PlayerType.COMPUTER_LLM);
         this.revalidate();
         this.repaint();
     }//GEN-LAST:event_cbPlayerTypeActionPerformed
+
+    private void btnLlmConfigActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnLlmConfigActionPerformed
+        if (llmConfigDialog == null) {
+            llmConfigDialog = new LLMConfigDialog();
+        }
+        llmConfigDialog.loadFrom(llmPlayerConfig != null ? llmPlayerConfig : LLMPlayerConfig.defaults());
+        llmConfigDialog.setSaveListener(cfg -> {
+            this.llmPlayerConfig = cfg;
+        });
+        llmConfigDialog.showDialog();
+    }//GEN-LAST:event_btnLlmConfigActionPerformed
 
 
     // Variables declaration - do not modify//GEN-BEGIN:variables
@@ -165,6 +293,12 @@ public class TournamentPlayerPanel extends javax.swing.JPanel {
     private javax.swing.JPanel pnlPlayerName;
     private javax.swing.JSpinner spnLevel;
     private javax.swing.JTextField txtPlayerName;
+    private javax.swing.JButton btnLlmConfig;
+    private javax.swing.JPanel pnlPlayerDeck;
+    private javax.swing.JLabel lblPlayerDeck;
+    private javax.swing.JTextField txtPlayerDeck;
+    private javax.swing.JButton btnPlayerDeck;
+    private javax.swing.JButton btnGenerate;
     // End of variables declaration//GEN-END:variables
 
 }

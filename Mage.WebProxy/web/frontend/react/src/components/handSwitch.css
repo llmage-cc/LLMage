@@ -1,0 +1,61 @@
+/* Hand switch control — styles travel with the component
+   (same pattern as viewDeck.css). The title row it lives in is a flex row, so
+   the control sits at its right end without touching the shared
+   game-renderer.css hand-section rules. */
+
+.hand-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.hand-switch-btn {
+  font-size: 0.7rem;
+  line-height: 1.2;
+  padding: calc(0.1rem * var(--ui-scale, 1)) calc(0.4rem * var(--ui-scale, 1));
+  border: 1px solid rgba(59, 130, 246, 0.45);
+  border-radius: 4px;
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--text-color);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.hand-switch-btn:hover {
+  background: rgba(59, 130, 246, 0.26);
+}
+
+/* Dropdown menu: anchored under the button, right-aligned so a long player name
+   does not push it off the board edge. Sits above the board like the other
+   floating menus. */
+.hand-switch-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 650;
+  min-width: 12rem;
+  display: flex;
+  flex-direction: column;
+  padding: 0.25rem 0;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  border-radius: 6px;
+  background: var(--bg-color, #1a1a2e);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+
+.hand-switch-item {
+  text-align: left;
+}
+
+.hand-switch-item.active {
+  font-weight: 600;
+  background: rgba(59, 130, 246, 0.22);
+}
+
+/* The hand title row: `Hand (N)` on the left, the switch control on the right. */
+.hand-section .hand-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}

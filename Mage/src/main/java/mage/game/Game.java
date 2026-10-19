@@ -296,6 +296,13 @@ public interface Game extends MageItem, Serializable, Copyable<Game> {
 
     GameStates getGameStates();
 
+    /**
+     * Repopulate the transient gameCards/meldCards index from the loaded
+     * gameStates after a .game replay deserialization. No-op on a live game.
+     * See GameImpl.rebuildGameCardsFromStates for the rationale.
+     */
+    void rebuildGameCardsFromStates();
+
     void loadGameStates(GameStates states);
 
     boolean isSimulation();
@@ -613,6 +620,14 @@ public interface Game extends MageItem, Serializable, Copyable<Game> {
      * @return
      */
     int bookmarkState();
+
+    /**
+     * Can the given bookmark still be restored? Bookmarks are positional (1-based index into the
+     * saved-states stack), so a bookmark is valid while it is within the current size. Used by the
+     * auto-restore anchor logic in GameImpl.playPriority
+     * to notice an anchor that bookmark churn dropped, before an error path needs it.
+     */
+    boolean hasBookmark(int bookmark);
 
     GameState restoreState(int bookmark, String context);
 

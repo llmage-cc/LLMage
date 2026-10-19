@@ -32,7 +32,10 @@ public class ChatSession {
 
     // only 1 field must be filled per chat type
     // TODO: rework chat sessions to share logic (one server room/lobby + one table/subtable + one games/match)
-    private UUID roomId = null;
+    // volatile: roomId is written in the session thread (withRoom) but read from RPC callback
+    // threads (JBoss Remoting async callbacks via DataCollectorServices). Without volatile, the
+    // RPC thread may see a stale null or a non-published value.
+    private volatile UUID roomId = null;
     private UUID tourneyId = null;
     private UUID tableId = null;
     private UUID gameId = null;
@@ -215,6 +218,10 @@ public class ChatSession {
      */
     public UUID getChatId() {
         return chatId;
+    }
+
+    public UUID getRoomId() {
+        return roomId;
     }
 
     public boolean hasUser(UUID userId, boolean useHistory) {

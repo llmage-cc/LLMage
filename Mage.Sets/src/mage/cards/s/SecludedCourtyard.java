@@ -6,6 +6,7 @@ import mage.ConditionalMana;
 import mage.MageObject;
 import mage.Mana;
 import mage.abilities.Ability;
+import mage.abilities.SpellAbility;
 import mage.abilities.common.AsEntersBattlefieldAbility;
 import mage.abilities.condition.Condition;
 import mage.abilities.costs.common.TapSourceCost;
@@ -114,13 +115,22 @@ class SecludedCourtyardManaCondition implements Condition {
 
     @Override
     public boolean apply(Game game, Ability source) {
-        MageObject object = game.getObject(source);
-        // casting a creature card or using its ability
-        if (creatureType != null
-                && object != null
-                && object.hasSubtype(creatureType, game)) {
-            return true;
+        if (creatureType == null) {
+            return false;
         }
-        return false;
+        MageObject object = game.getObject(source);
+        // must be a creature (or creature card) of the chosen type - a non-creature card that merely
+        // carries the creature subtype (e.g. a Kindred enchantment) is not covered by the card text
+        if (object == null
+                || !object.isCreature(game)
+                || !object.hasSubtype(creatureType, game)) {
+            return false;
+        }
+        // ... to cast a creature spell of the chosen type (same gate as CreatureCastManaCondition / Cavern of Souls)
+        if (source instanceof SpellAbility) {
+            return !source.isActivated();
+        }
+        // ... or to activate an ability of a creature or creature card of the chosen type
+        return true;
     }
 }

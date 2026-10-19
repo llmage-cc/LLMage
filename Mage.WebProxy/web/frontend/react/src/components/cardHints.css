@@ -1,0 +1,94 @@
+/* Card hints helper — styles travel with the component (imported from
+   CardHintsModal.tsx), same convention as viewDeck.css: the feature adds no
+   shared-CSS footprint. */
+
+.card-hints-modal {
+  max-width: 780px;
+  width: 92vw;
+}
+
+.card-hints-controls {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.card-hints-controls select {
+  min-width: 10rem;
+}
+
+.card-hints-search {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.card-hints-body {
+  margin-top: 0.75rem;
+  max-height: 60vh;
+  overflow-y: auto;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.card-hints-empty {
+  color: var(--text-muted, #7a7f93);
+  font-style: italic;
+  padding: 0.5rem 0;
+}
+
+.card-hints-seat {
+  margin-bottom: 0.6rem;
+}
+
+.card-hints-seat-title {
+  font-weight: 700;
+  color: var(--text-primary, #e0e0e0);
+}
+
+.card-hints-hint-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: baseline;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.card-hints-hint-row:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.card-hints-hint-text {
+  color: var(--text-primary, #e0e0e0);
+}
+
+.card-hints-card-codes {
+  color: var(--text-muted, #7a7f93);
+  white-space: nowrap;
+}
+
+/* Card codes / names are click targets (they open the same hover-preview panel
+   a board hover produces) — look like links, not like buttons. */
+.card-hints-card-code,
+.card-hints-card-name {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent-primary, #7aa2f7);
+  cursor: pointer;
+}
+
+.card-hints-card-code:hover,
+.card-hints-card-name:hover {
+  text-decoration: underline;
+}
+
+.card-hints-card-row {
+  padding: 1px 4px;
+}
+
+.card-hints-hint-line {
+  padding-left: 1rem;
+  color: var(--text-primary, #e0e0e0);
+}

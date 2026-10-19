@@ -341,7 +341,14 @@ public class TableManagerImpl implements TableManager {
     @Override
     public void addPlayer(UUID userId, UUID tableId, TournamentPlayer player) throws GameException {
         if (controllers.containsKey(tableId)) {
-            controllers.get(tableId).addPlayer(userId, player.getPlayer(), player.getPlayerType(), player.getDeck());
+            // For LLM players, create a fresh copy so conversation history from
+            // previous rounds doesn't carry over and cause stale context issues.
+            mage.players.Player p = player.getPlayer();
+            p = LLMPlayerHelper.copyIfNeeded(p);
+            // Copy the deck so sideboarding in this sub-table doesn't modify the
+            // TournamentPlayer's original deck (needed for round 2+ to start fresh).
+            mage.cards.decks.Deck deckCopy = player.getDeck() != null ? player.getDeck().copy() : null;
+            controllers.get(tableId).addPlayer(userId, p, player.getPlayerType(), deckCopy);
         }
     }
 

@@ -52,6 +52,13 @@ public final class LocalCommands {
                 final String unignoreTarget = getRemainingTokens(st);
                 response = Optional.of(IgnoreList.unignore(serverAddress, unignoreTarget));
                 break;
+            case "/llm":
+            case "\\llm":
+                // Open the LLM conversation debug window for the active game
+                javax.swing.SwingUtilities.invokeLater(() ->
+                    mage.client.MageFrame.getInstance().showLLMDebugWindow());
+                response = Optional.of("LLM Chat window opened.");
+                break;
             // TODO: move profanity settings to here
             default:
                 break;

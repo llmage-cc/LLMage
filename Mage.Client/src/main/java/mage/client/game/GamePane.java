@@ -64,7 +64,7 @@ public class GamePane extends MagePane {
         this.currentTableId = null;
         this.parentTableId = null;
         this.gameId = gameId;
-        gamePanel.replayGame(gameId);
+        gamePanel.replayGame(gameId, this);
     }
 
     @SuppressWarnings("unchecked")
@@ -93,6 +93,10 @@ public class GamePane extends MagePane {
 
     public UUID getGameId() {
         return gameId;
+    }
+
+    public mage.client.game.GamePanel getGamePanel() {
+        return gamePanel;
     }
 
     @Override

@@ -14,11 +14,17 @@ import mage.watchers.common.CommanderPlaysCountWatcher;
  * Duel Commander format rule: a player may cast only one of their commanders from the command zone
  * each game (the first one cast, the choice isn't announced before). Only casting from the command
  * zone is restricted, so the other commander can still be cast from another zone (Command Beacon,
- * Road of Return, Netherborn Altar, ...).
+ * Road of Return, Netherborn Altar...).
  * <p>
  * One effect is created per commander, see GameCommanderImpl.initCommanderEffects
  */
 public class CastOnlyOneCommanderPerGameEffect extends ContinuousRuleModifyingEffectImpl {
+    // Pinned 2026-10-02 against silent UID drift orphaning the .game replay corpus
+    // the third instance is
+    // This is the value this class
+    // computed when the pin was added: it FREEZES the wire UID, so later field/method/superclass
+    // edits no longer change it. A deliberate format break must re-derive it explicitly.
+    private static final long serialVersionUID = -5724925742847283570L;
 
     private final Card commander;
 

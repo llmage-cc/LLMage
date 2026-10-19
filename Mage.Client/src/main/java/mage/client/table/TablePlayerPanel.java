@@ -2,12 +2,15 @@ package mage.client.table;
 
 import mage.cards.decks.importer.DeckImporter;
 import mage.client.SessionHandler;
+import mage.client.dialog.LLMConfigDialog;
 import mage.client.util.ClientDefaultSettings;
 import mage.client.util.Event;
 import mage.client.util.Listener;
 import mage.players.PlayerType;
+import mage.players.LLMPlayerConfig;
 
 import javax.swing.*;
+import java.awt.*;
 import java.io.IOException;
 import java.util.UUID;
 
@@ -17,10 +20,13 @@ import java.util.UUID;
 public class TablePlayerPanel extends javax.swing.JPanel {
 
     protected final PlayerTypeEventSource playerTypeEventSource = new PlayerTypeEventSource();
+    private LLMPlayerConfig llmPlayerConfig;
+    private LLMConfigDialog llmConfigDialog;
 
     public TablePlayerPanel() {
         initComponents();
         this.newPlayerPanel.setVisible(false);
+        this.btnLlmConfig.setVisible(false);
     }
 
     public void init(int playerNum, PlayerType playerType, int playerSkill, String playerDeck) {
@@ -72,6 +78,13 @@ public class TablePlayerPanel extends javax.swing.JPanel {
         playerTypeEventSource.clearListeners();
     }
 
+    public LLMPlayerConfig getLlmPlayerConfig() {
+        return llmPlayerConfig;
+    }
+
+    public void setLlmPlayerConfig(LLMPlayerConfig config) {
+        this.llmPlayerConfig = config;
+    }
 
     /**
      * This method is called from within the constructor to
@@ -87,6 +100,7 @@ public class TablePlayerPanel extends javax.swing.JPanel {
         cbPlayerType = new javax.swing.JComboBox();
         newPlayerPanel = new mage.client.table.NewPlayerPanel();
         lblPlayerNum = new javax.swing.JLabel();
+        btnLlmConfig = new javax.swing.JButton();
 
         lbPlayerType.setText("Type:");
 
@@ -94,6 +108,10 @@ public class TablePlayerPanel extends javax.swing.JPanel {
 
         lblPlayerNum.setFont(new java.awt.Font("Tahoma", 1, 11));
         lblPlayerNum.setText("Player #");
+
+        btnLlmConfig.setText("LLM Config...");
+        btnLlmConfig.setToolTipText("Configure LLM model and settings for this player");
+        btnLlmConfig.addActionListener(evt -> btnLlmConfigActionPerformed(evt));
 
         javax.swing.GroupLayout layout = new javax.swing.GroupLayout(this);
         this.setLayout(layout);
@@ -108,7 +126,9 @@ public class TablePlayerPanel extends javax.swing.JPanel {
                                                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                                                 .addComponent(cbPlayerType, javax.swing.GroupLayout.PREFERRED_SIZE, 166, javax.swing.GroupLayout.PREFERRED_SIZE)))
                                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                                .addComponent(newPlayerPanel, javax.swing.GroupLayout.DEFAULT_SIZE, 318, Short.MAX_VALUE))
+                                .addComponent(newPlayerPanel, javax.swing.GroupLayout.DEFAULT_SIZE, 318, Short.MAX_VALUE)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(btnLlmConfig, javax.swing.GroupLayout.PREFERRED_SIZE, 110, javax.swing.GroupLayout.PREFERRED_SIZE))
         );
         layout.setVerticalGroup(
                 layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
@@ -120,22 +140,39 @@ public class TablePlayerPanel extends javax.swing.JPanel {
                                                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
                                                         .addComponent(cbPlayerType, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
                                                         .addComponent(lbPlayerType)))
-                                        .addComponent(newPlayerPanel, javax.swing.GroupLayout.DEFAULT_SIZE, 43, Short.MAX_VALUE))
+                                        .addComponent(newPlayerPanel, javax.swing.GroupLayout.DEFAULT_SIZE, 43, Short.MAX_VALUE)
+                                        .addComponent(btnLlmConfig, javax.swing.GroupLayout.Alignment.CENTER, javax.swing.GroupLayout.PREFERRED_SIZE, 25, javax.swing.GroupLayout.PREFERRED_SIZE))
                                 .addContainerGap())
         );
     }// </editor-fold>//GEN-END:initComponents
 
     private void cbPlayerTypeActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_cbPlayerTypeActionPerformed
-        if (getPlayerType() != PlayerType.HUMAN) {
+        PlayerType pt = getPlayerType();
+        if (pt != PlayerType.HUMAN) {
             this.newPlayerPanel.setVisible(true);
             this.newPlayerPanel.setPlayerName(extractAiPlayerNumberFromLabel(this.lblPlayerNum.getText()));
         } else {
             this.newPlayerPanel.setVisible(false);
         }
+        // Show LLM Config button only for LLM player type
+        this.btnLlmConfig.setVisible(pt == PlayerType.COMPUTER_LLM);
         this.revalidate();
         this.repaint();
         this.playerTypeEventSource.playerTypeChanged();
     }//GEN-LAST:event_cbPlayerTypeActionPerformed
+
+    private void btnLlmConfigActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnLlmConfigActionPerformed
+        if (llmConfigDialog == null) {
+            llmConfigDialog = new LLMConfigDialog();
+        }
+        // Use server defaults as fallback so the dialog shows current values
+        llmConfigDialog.loadFrom(llmPlayerConfig != null ? llmPlayerConfig : LLMPlayerConfig.defaults());
+        // Non-modal mode: setVisible(true) returns immediately. Use callback.
+        llmConfigDialog.setSaveListener(cfg -> {
+            this.llmPlayerConfig = cfg;
+        });
+        llmConfigDialog.showDialog();
+    }//GEN-LAST:event_btnLlmConfigActionPerformed
 
 
     // Variables declaration - do not modify//GEN-BEGIN:variables
@@ -143,6 +180,7 @@ public class TablePlayerPanel extends javax.swing.JPanel {
     private javax.swing.JLabel lbPlayerType;
     private javax.swing.JLabel lblPlayerNum;
     private mage.client.table.NewPlayerPanel newPlayerPanel;
+    private javax.swing.JButton btnLlmConfig;
     // End of variables declaration//GEN-END:variables
 
 }

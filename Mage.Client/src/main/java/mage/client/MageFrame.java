@@ -1015,6 +1015,7 @@ public class MageFrame extends javax.swing.JFrame implements MageClient {
         jSeparator7 = new javax.swing.JToolBar.Separator();
         btnDebug = new javax.swing.JButton();
         separatorDebug = new javax.swing.JToolBar.Separator();
+        btnLLMChat = new javax.swing.JButton();
         jMemUsageLabel = new javax.swing.JLabel();
 
         menuDebugTestModalDialog.setText("Test Modal Dialogs");
@@ -1095,6 +1096,19 @@ public class MageFrame extends javax.swing.JFrame implements MageClient {
         mageToolbar.add(btnConnect);
         mageToolbar.add(jSeparator1);
 
+        btnLoadReplay = new javax.swing.JButton();
+        btnLoadReplay.setText("Load Replay");
+        btnLoadReplay.setToolTipText("Open a saved .game replay file to step through a previous game");
+        btnLoadReplay.setFocusable(false);
+        btnLoadReplay.setHorizontalTextPosition(javax.swing.SwingConstants.RIGHT);
+        btnLoadReplay.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                btnLoadReplayActionPerformed(evt);
+            }
+        });
+        mageToolbar.add(btnLoadReplay);
+        mageToolbar.add(new javax.swing.JToolBar.Separator());
+
         btnDeckEditor.setIcon(new javax.swing.ImageIcon(getClass().getResource("/menu/deck_editor.png"))); // NOI18N
         btnDeckEditor.setText("Deck Editor");
         btnDeckEditor.setToolTipText("Start the deck editor to create or modify decks.");
@@ -1173,6 +1187,20 @@ public class MageFrame extends javax.swing.JFrame implements MageClient {
         mageToolbar.add(btnDebug);
         mageToolbar.add(separatorDebug);
 
+        // LLM Chat button — opens the conversation debug window for LLM players
+        btnLLMChat.setIcon(new javax.swing.ImageIcon(getClass().getResource("/menu/feedback.png"))); // NOI18N
+        btnLLMChat.setText("LLM Chat");
+        btnLLMChat.setToolTipText("Open LLM conversation debug window for the current game");
+        btnLLMChat.setFocusable(false);
+        btnLLMChat.setHorizontalTextPosition(javax.swing.SwingConstants.RIGHT);
+        btnLLMChat.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                btnLLMChatActionPerformed(evt);
+            }
+        });
+        mageToolbar.add(btnLLMChat);
+        mageToolbar.add(new javax.swing.JToolBar.Separator());
+
         jMemUsageLabel.setHorizontalAlignment(javax.swing.SwingConstants.LEFT);
         jMemUsageLabel.setIcon(new javax.swing.ImageIcon(getClass().getResource("/menu/memory.png"))); // NOI18N
         jMemUsageLabel.setText("100% Free mem");
@@ -1209,6 +1237,34 @@ public class MageFrame extends javax.swing.JFrame implements MageClient {
             connectDialog.showDialog(this::setWindowTitle);
         }
     }//GEN-LAST:event_btnConnectActionPerformed
+
+    private void btnLoadReplayActionPerformed(java.awt.event.ActionEvent evt) {
+        if (!SessionHandler.isConnected()) {
+            JOptionPane.showMessageDialog(this, "You must connect to a server first to load a replay.", "Not Connected", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Select .game replay file");
+        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("XMage Game Replays (*.game)", "game"));
+        // Try to default to the server's saved/ directory if it exists
+        java.io.File defaultDir = new java.io.File(System.getProperty("user.home"), "xmage-saved");
+        if (defaultDir.isDirectory()) {
+            chooser.setCurrentDirectory(defaultDir);
+        }
+        if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+            String fileName = chooser.getSelectedFile().getName();
+            // Extract UUID from filename: <uuid>.game
+            String uuidStr = fileName.replace(".game", "");
+            try {
+                UUID gameId = UUID.fromString(uuidStr);
+                // This calls server.replayInit() which creates a ReplaySession on the server.
+                // The server will then send a REPLAY_GAME callback that opens the replay panel.
+                SessionHandler.replayGame(gameId);
+            } catch (IllegalArgumentException e) {
+                JOptionPane.showMessageDialog(this, "Invalid replay file name.\nThe file must be named <game-uuid>.game\nGot: " + fileName, "Invalid File", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
 
     public void btnAboutActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnAboutActionPerformed
         JInternalFrame[] windows = desktopPane.getAllFrames();
@@ -1257,6 +1313,23 @@ public class MageFrame extends javax.swing.JFrame implements MageClient {
         }
         popupDebug.show(evt.getComponent(), 0, evt.getComponent().getHeight());
     }//GEN-LAST:event_btnDebugMouseClicked
+
+    private void btnLLMChatActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnLLMChatActionPerformed
+        showLLMDebugWindow();
+    }//GEN-LAST:event_btnLLMChatActionPerformed
+
+    /**
+     * Open the LLM conversation debug window for the active game.
+     * Can be called from the toolbar button or via /llm console command.
+     */
+    public void showLLMDebugWindow() {
+        if (activeFrame instanceof GamePane) {
+            GamePane pane = (GamePane) activeFrame;
+            if (pane.getGamePanel() != null) {
+                pane.getGamePanel().showLLMDebugWindow();
+            }
+        }
+    }
 
     private void menuDebugTestCardRenderModesDialogActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_menuDebugTestCardRenderModesDialogActionPerformed
         final TestCardRenderDialog dialog = new TestCardRenderDialog();
@@ -1627,8 +1700,10 @@ public class MageFrame extends javax.swing.JFrame implements MageClient {
     private javax.swing.JButton btnCollectionViewer;
     private javax.swing.JButton btnConnect;
     private javax.swing.JButton btnDebug;
+    private javax.swing.JButton btnLLMChat;
     private javax.swing.JButton btnDeckEditor;
     private javax.swing.JButton btnDownload;
+    private javax.swing.JButton btnLoadReplay;
     private javax.swing.JButton btnPreferences;
     private javax.swing.JButton btnSendFeedback;
     private static javax.swing.JDesktopPane desktopPane;

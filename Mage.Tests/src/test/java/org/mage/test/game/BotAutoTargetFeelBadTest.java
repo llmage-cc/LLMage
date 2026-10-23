@@ -33,8 +33,13 @@ import org.mage.test.serverside.base.CardTestPlayerBase;
  *       only an opponent's permanent as a candidate still auto-chooses it, so the guard does not
  *       stop ordinary auto-targeting (no extra prompts / no latency regression).</li>
  * </ul>
- * The test seats are TestPlayers, which report {@code isHuman() == false} and
- * {@code getControllingPlayersUserData() == null} - exactly the branch the fix changes.
+ * The test seats are TestPlayers. A scripted TestPlayer does NOT take the bot branch any more
+ * ({@code isComputer() == AIRealGameSimulation} defaults to false for it,
+ * so it keeps upstream's level 2), so each leg turns the harness's bot emulation on with
+ * {@code setAIPlayer(true)} — the same flag that makes {@code priority()} call
+ * {@code changeAIControl(game, true)} — and asserts the seat really reports
+ * {@code isComputer() == true} before measuring. A plain TestPlayer is covered by
+ * {@code BotAutoTargetLevelPinTest}.
  */
 public class BotAutoTargetFeelBadTest extends CardTestPlayerBase {
 
@@ -49,9 +54,11 @@ public class BotAutoTargetFeelBadTest extends CardTestPlayerBase {
     @Test
     public void botDoesNotAutoChooseItsOwnPermanentForARemovalEffect() {
         addCard(Zone.BATTLEFIELD, playerA, "Silvercoat Lion", 1);
+        playerA.setAIPlayer(true); // take the genuine bot branch (isComputer() == true)
 
         runCode("own permanent only", 1, PhaseStep.PRECOMBAT_MAIN, playerA, (info, player, game) -> {
             Assert.assertFalse("setup: the seat must be a bot path (non-human)", player.isHuman());
+            Assert.assertTrue("setup: the seat must take the bot branch", player.isComputer());
 
             Permanent own = game.getBattlefield().getAllActivePermanents(StaticFilters.FILTER_PERMANENT_CREATURE, game)
                     .stream().filter(p -> p.isControlledBy(player.getId())).findFirst().orElse(null);
@@ -78,9 +85,11 @@ public class BotAutoTargetFeelBadTest extends CardTestPlayerBase {
     @Test
     public void botStillAutoChoosesAnOpponentsPermanent() {
         addCard(Zone.BATTLEFIELD, playerB, "Grizzly Bears", 1);
+        playerA.setAIPlayer(true); // take the genuine bot branch (isComputer() == true)
 
         runCode("opponent permanent only", 1, PhaseStep.PRECOMBAT_MAIN, playerA, (info, player, game) -> {
             Assert.assertFalse("setup: the seat must be a bot path (non-human)", player.isHuman());
+            Assert.assertTrue("setup: the seat must take the bot branch", player.isComputer());
 
             Permanent hostile = game.getBattlefield().getAllActivePermanents(StaticFilters.FILTER_PERMANENT_CREATURE, game)
                     .stream().filter(p -> p.isControlledBy(playerB.getId())).findFirst().orElse(null);

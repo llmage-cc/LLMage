@@ -145,6 +145,20 @@ done < "$BUILD_DIR/jar-list.txt"
 echo "sourced $copied jars (target/=$from_target, m2=$from_m2, failures=$missing)"
 [ "$missing" -eq 0 ] || { echo "FATAL: $missing jar(s) could not be sourced" >&2; exit 1; }
 
+# 2b. GUARD: exactly one version per org.mage artifact. The assembly's fileSet copies
+#     the release tree as it stands, so a tree left over from the previous release makes
+#     the zip list BOTH versions; both then reach the classpath and which one wins is
+#     directory order (hit 2026-10-20: 33 jars at 1.4.61 alongside 1.4.62). If the tree
+#     is contaminated, clean Mage.Server/release/{lib,plugins} of versioned jars and
+#     rebuild the assembly before re-running this script.
+dups="$(find Mage.Server/release/lib -maxdepth 1 -name 'mage-*-[0-9]*.jar' -printf '%f\n' \
+        | sed -E 's/-[0-9]+(\.[0-9]+)+\.jar$//' | sort | uniq -d)"
+if [ -n "$dups" ]; then
+    echo "FATAL: multiple versions of the same artifact in release/lib:" >&2
+    echo "$dups" | sed 's/^/  /' >&2
+    exit 1
+fi
+
 # 3b. GUARD: the web proxy must not be present in release/lib/ — its
 #     log4j.properties competes with the server's for the root logger (the JVM
 #     resolves log4j.properties by classpath enumeration and lib/* comes before

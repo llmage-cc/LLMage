@@ -410,7 +410,7 @@ public class Personality {
     }
 
     private static final Personality DEFAULT = new Personality(
-        "You are a focused Magic: The Gathering player who competes to win.",
+        "A focused Magic: The Gathering player who competes to win.",
         "Balanced, all-around play. Competent at all aspects of the game. "
         + "Adapts strategy to the situation."
     );

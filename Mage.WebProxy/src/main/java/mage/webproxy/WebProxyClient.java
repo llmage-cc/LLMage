@@ -1428,6 +1428,13 @@ public class WebProxyClient implements MageClient {
             msg.put("hasWon", gev.hasWon());
             msg.put("matchInfo", gev.getMatchInfo() != null ? gev.getMatchInfo() : "");
             msg.put("additionalInfo", gev.getAdditionalInfo() != null ? gev.getAdditionalInfo() : "");
+            // Why the game ended for the viewer's own seat (GameEndReason values:
+            // "llm_failure" | "concede" | "timeout" | "idle" | "quit" | "unknown";
+            // null for a watcher, who has no seat). ADDITIVE and rich-branch-only:
+            // the partial GAME_OVER payload below carries no view at all, and an
+            // older server omits the key — the frontend's 2-seat log-line
+            // heuristic stays the fallback for that case.
+            msg.put("endReason", gev.getEndReason());
             // Game + match duration windows (epoch ms, null when unknown) — the desktop
             // GameEndDialog's Statistics tab shows both (GameEndDialog.java:66-73,
             // Format.getDuration). Game window: GameEndView.startTime/endTime (the

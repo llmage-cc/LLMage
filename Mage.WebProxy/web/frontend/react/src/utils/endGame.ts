@@ -14,16 +14,22 @@
  * (PlayerImpl.java:2883) emits "<winner> has won the game" through the ordinary
  * all-opponents-lost path.
  *
- * NONE of the end-game WIRE payloads carry a reason/discriminator. GameEndView
- * (Mage.Common/src/main/java/mage/view/GameEndView.java) exposes only
- * gameInfo/matchInfo/additionalInfo/wins/loses/winsNeeded — all reason-free;
- * GameView/GameState carry no end reason; MatchView/MatchPlayerView carry only
- * a `quit` flag (which a provider-failure concede shares with a click-concede
- * and an idle timeout). So the ONLY reason signal the browser receives is the
- * fatal log line itself. These helpers turn that line — plus the seat count,
- * which makes the inference exact for the 1v1 LLM-vs-human product — into
- * presentation decisions, and are PURE so the harness exercises the exact
- * strings the UI renders (same pattern as visibleRightTabs / resultDisplay).
+ * OUR server now ships the reason itself: GameEndView carries `endReason`
+ * (mage.game.GameEndReason — "llm_failure" | "concede" | "timeout" | "idle" |
+ * "quit" | "unknown"), and the proxy puts it on the rich `game_over` frame as
+ * `endReason` for the viewer's OWN seat (null for a watcher, who has no seat).
+ * That field is authoritative and is what endDialogKind uses first.
+ *
+ * The log-line inference remains ONLY as the fallback for an older server (or
+ * an older proxy) whose payload omits the field: GameEndView used to expose
+ * gameInfo/matchInfo/additionalInfo/wins/loses/winsNeeded and no reason at all,
+ * and MatchView/MatchPlayerView carry only a `quit` flag (which a
+ * provider-failure concede shares with a click-concede and an idle timeout),
+ * so for a stock/older server the fatal log line is still the only signal the
+ * browser has. These helpers turn that line — plus the seat count, which makes
+ * the inference exact for the 1v1 LLM-vs-human product — into presentation
+ * decisions, and are PURE so the harness exercises the exact strings the UI
+ * renders (same pattern as visibleRightTabs / resultDisplay).
  */
 
 /** The literal the engine stamps on a terminal-seat-failure line (LLMPlayer.java:2200). */
@@ -133,13 +139,27 @@ export function logHasTerminalFailure(events: Array<{ message?: string }>): bool
  *                           forfeited on a terminal provider failure.
  *  - 'victory'            — a played-out win (unchanged).
  *
- * The inference is EXACT for a two-seat game: a terminal failure makes that
- * seat CONCEDE, which ends a 1v1 game (MatchImpl.checkIfMatchEnds →
- * activePlayers < 2), so fatal-line + a win can only be the human winning by
- * forfeit there. In a >2-seat game one seat's failure need not end the game, so
- * a later played-out win could be mislabelled — the rule declines the inference
- * above two seats rather than guess. (An engine/wire end reason would make this
- * exact for any seat count.)
+ * PRECEDENCE:
+ *  1. !hasWon -> 'defeat'. A lost seat is a lost seat whatever the reason says
+ *     (a timeout/idle/quit reason on the viewer's own seat is still a loss).
+ *  2. `endReason === 'llm_failure'` -> 'technical-victory', for ANY seat count.
+ *     The engine records that reason exactly where LLMPlayer.concedeOnTerminalFailure
+ *     concedes, so it is authoritative — and it is the reason >2-seat games were
+ *     previously mislabelled as played-out wins.
+ *  3. any other PRESENT reason ('concede' | 'timeout' | 'idle' | 'quit' |
+ *     'unknown') -> 'victory'. A click-concede, a clock flag or a quit is not a
+ *     provider failure; the field is trusted over a stale fatal log line that a
+ *     previous game may have left in the rail.
+ *  4. absent/null -> the old inference, kept ONLY for a stock/older server whose
+ *     payload carries no field (an older proxy, or a watcher's null). It is EXACT
+ *     for two seats: a terminal failure makes that seat CONCEDE, which ends a 1v1
+ *     game (MatchImpl.checkIfMatchEnds → activePlayers < 2), so fatal-line + a win
+ *     can only be the human winning by forfeit there. Above two seats one seat's
+ *     failure need not end the game, so a later played-out win could be
+ *     mislabelled — the fallback declines rather than guess.
+ *
+ * Why keep the fallback at all: the browser talks to stock XMage servers too
+ * (see AGENTS.md stock-LLMage pairing), and those omit `endReason` entirely.
  */
 export type EndDialogKind = 'victory' | 'technical-victory' | 'defeat'
 
@@ -157,8 +177,16 @@ export function endDialogKind(
   hasWon: boolean,
   playerCount: number,
   logHasTerminalFailureFlag: boolean,
+  endReason?: string | null,
 ): EndDialogKind {
   if (!hasWon) return 'defeat'
+  // The wire's own reason, when the server sent one, beats every inference.
+  // ('unknown' is the engine's "nothing recorded" default — a played-out win —
+  // so it takes the same branch as the other non-failure reasons.)
+  if (typeof endReason === 'string' && endReason.length > 0) {
+    return endReason === 'llm_failure' ? 'technical-victory' : 'victory'
+  }
+  // Fallback: a stock/older server, or a watcher's null. Exact for 1v1 only.
   if (playerCount === 2 && logHasTerminalFailureFlag) return 'technical-victory'
   return 'victory'
 }

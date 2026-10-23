@@ -6,6 +6,7 @@ import mage.abilities.StaticAbility;
 import mage.abilities.common.EntersBattlefieldTriggeredAbility;
 import mage.abilities.condition.Condition;
 import mage.abilities.costs.*;
+import mage.abilities.costs.OptionalCostPrompt;
 import mage.abilities.costs.mana.ManaCostsImpl;
 import mage.abilities.effects.OneShotEffect;
 import mage.abilities.effects.common.CreateTokenCopyTargetEffect;
@@ -67,7 +68,7 @@ public class OffspringAbility extends StaticAbility implements OptionalAdditiona
             return;
         }
         additionalCost.reset();
-        if (!additionalCost.canPay(ability, this, ability.getControllerId(), game)
+        if (!OptionalCostPrompt.canPay(additionalCost, ability, this, ability.getControllerId(), game)
                 || !player.chooseUse(Outcome.PutCreatureInPlay, "Pay " + additionalCost.getText(true) + " for offspring?", ability, game)) {
             return;
         }

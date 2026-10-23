@@ -5,6 +5,7 @@ import mage.abilities.Ability;
 import mage.abilities.Mode;
 import mage.abilities.TriggeredAbility;
 import mage.abilities.costs.Cost;
+import mage.abilities.costs.OptionalCostPrompt;
 import mage.abilities.effects.ContinuousEffect;
 import mage.abilities.effects.Effect;
 import mage.abilities.effects.Effects;
@@ -107,8 +108,9 @@ public class DoIfCostPaid extends OneShotEffect {
         }
         String message = CardUtil.replaceSourceName(makeChooseText(game, source), mageObject.getName());
         Outcome payOutcome = executingEffects.getOutcome(source, this.outcome);
-        // nothing to pay (do not support mana cost - it's true all the time)
-        boolean canPay = cost.canPay(source, source, player.getId(), game);
+        // Upstream prompt shape: mana costs answer payable (so the question is always asked and
+        // payment failure rolls back below), non-mana costs keep their real canPay answer.
+        boolean canPay = OptionalCostPrompt.canPay(cost, source, source, player.getId(), game);
         boolean didPay = false;
         if (canPay && (!optional || player.chooseUse(payOutcome, message, source, game))) {
             cost.clearPaid();

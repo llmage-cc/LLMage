@@ -62,6 +62,11 @@ public final class HapatraTheDesertFang extends CardImpl {
 enum HapatraTheDesertFangValue implements DynamicValue {
     instance;
 
+    // Pinned 2026-10-20 (new save-surface class). An enum is serialized by constant NAME, not by
+    // class descriptor, so the JVM reports UID 0 for every enum and the value can never drift;
+    // declared anyway so the manifest gate sees a deliberate pin instead of an unowned class.
+    private static final long serialVersionUID = 0L;
+
     @Override
     public int calculate(Game game, Ability sourceAbility, Effect effect) {
         return 1 * Optional

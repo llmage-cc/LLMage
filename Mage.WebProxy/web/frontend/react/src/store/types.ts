@@ -306,6 +306,12 @@ export interface GameplayState {
     gameEndMs?: number | undefined
     matchStartMs?: number | undefined
     matchEndMs?: number | undefined
+    /**
+     * Why THIS seat's game ended (GameEndReason), from the rich `game_over`
+     * payload. Absent for a watcher / an older server — the dialog then falls
+     * back to its 2-seat fatal-log-line inference.
+     */
+    endReason?: string | undefined
   } | null
   eventLog: GameEvent[]
   chatMessages: GameEvent[]
@@ -325,6 +331,7 @@ export interface GameplayState {
     gameEndMs?: number | undefined
     matchStartMs?: number | undefined
     matchEndMs?: number | undefined
+    endReason?: string | undefined
   }) => void
   clearGameEnd: () => void
   appendEvent: (event: GameEvent) => void

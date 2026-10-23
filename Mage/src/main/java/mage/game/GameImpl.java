@@ -3568,6 +3568,14 @@ public abstract class GameImpl implements Game {
             // no need to remove objects if only one player is left so the game is over
             return;
         }
+        // The game continues, so this seat's exit did not end it — a reason recorded
+        // for its concession must not be reported as the reason the GAME ended.
+        // (>2 seats: one seat concedes on turn 3, the game is later won by damage;
+        // that is a played-out win, not a concede.) This is the only point where
+        // "did the departure end the game" is known, which is why the clear is here
+        // and not at the concede site. A departure that does end the game returns
+        // above and keeps the reason.
+        state.setEndReason(null);
         //20100423 - 800.4a
         Set<Card> toOutside = new HashSet<>();
         for (Iterator<Permanent> it = getBattlefield().getAllPermanents().iterator(); it.hasNext(); ) {

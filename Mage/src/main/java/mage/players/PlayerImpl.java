@@ -2721,6 +2721,15 @@ public abstract class PlayerImpl implements Player, Serializable {
 
     @Override
     public void concede(Game game) {
+        // Record WHY the game is ending before the state freezes (GameEndView reads
+        // it at END_GAME_INFO). Timed-out, idle and quit seats also land here, but
+        // the view gives their match flags precedence; a seat that already recorded
+        // a reason (LLMPlayer's terminal provider failure) keeps it.
+        // NOT stamped in GameImpl.checkConcede: lostForced / drew feed that same
+        // queue for ordinary losses and draws, which must stay "unknown".
+        if (game.getState().getEndReason() == null) {
+            game.getState().setEndReason(GameEndReason.CONCEDE);
+        }
         game.setConcedingPlayer(playerId);
 
         lost(game); // it's ok to be ignored by "can't lose abilities" here (setConcedingPlayer done all work above)
@@ -3034,17 +3043,20 @@ public abstract class PlayerImpl implements Player, Serializable {
             // shouldn't, Opposition-Agent exploitation.
             // 701.23b: a search of a hidden zone for cards with a STATED QUALITY
             // (filter with predicates, see TargetCardInLibrary's setRequired call)
-            // never forces the searcher to find them, so when the search can't
-            // even match the caller's minimum there is no legal choice at all:
-            // skip the choose call and let the search find nothing. The minimum
-            // must NOT be relaxed to the match count here (that permissive path
-            // allowed a partial find of an "exactly N" search).
+            // never forces the searcher to find them.
             // 701.23d: a search for a QUANTITY of cards only ("search your library
             // for three cards") must find that many or as many as possible, so
-            // there the minimum still relaxes to the count actually present.
+            // there the minimum relaxes to the count actually present.
+            // A restricted search with partial matches keeps the fork's stricter
+            // 2026-09-28 no-op (relaxing an "exactly N" search to a partial find was
+            // the defect). A restricted search with ZERO matches relaxes to 0 and
+            // still offers the chooser — upstream's prompt shape:
+            // the dialog can only select nothing, so no card outside
+            // the filter is reachable, but a caller/script that stages a skip is
+            // answered instead of being silently bypassed.
             boolean noLegalChoice = false;
             if (count < target.getMinNumberOfTargets()) {
-                if (target.getFilter().hasPredicates()) {
+                if (target.getFilter().hasPredicates() && count > 0) {
                     noLegalChoice = true;
                 } else {
                     newTarget.setMinNumberOfTargets(count);

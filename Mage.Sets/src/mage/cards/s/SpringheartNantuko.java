@@ -6,6 +6,7 @@ import mage.abilities.Ability;
 import mage.abilities.common.LandfallAbility;
 import mage.abilities.common.SimpleStaticAbility;
 import mage.abilities.costs.Cost;
+import mage.abilities.costs.OptionalCostPrompt;
 import mage.abilities.costs.mana.ManaCostsImpl;
 import mage.abilities.effects.OneShotEffect;
 import mage.abilities.effects.common.CreateTokenCopyTargetEffect;
@@ -87,7 +88,7 @@ class SpringheartNantukoEffect extends OneShotEffect {
             if (StaticFilters.FILTER_CONTROLLED_CREATURE.match(attachedTo, controller.getId(), source, game)) {
                 // you may pay {1}{G} if Springheart Nantuko is attached to a creature you control,
                 Cost cost = new ManaCostsImpl<>("{1}{G}");
-                if (cost.canPay(source, source, controller.getId(), game)
+                if (OptionalCostPrompt.canPay(cost, source, source, controller.getId(), game)
                         && controller.chooseUse(Outcome.PutCreatureInPlay, "Pay {1}{G} to make a copy of " + attachedTo.getIdName() + "?", source, game)
                         && cost.pay(source, game, source, controller.getId(), false, null)) {
                     // If you do, create a token that's a copy of that creature.

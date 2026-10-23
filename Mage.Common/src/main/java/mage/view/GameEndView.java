@@ -7,6 +7,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.UUID;
 import mage.game.Game;
+import mage.game.GameEndReason;
 import mage.game.GameState;
 import mage.game.Table;
 import mage.game.match.Match;
@@ -17,6 +18,15 @@ import mage.players.Player;
  * @author LevelX2
  */
 public class GameEndView implements Serializable {
+
+    // Pinned to the value this class computed on the unmodified 1.4.62 tree
+    // (measured 2026-10-20 with serialver + ObjectStreamClass.lookup against
+    // Mage.Common/target/classes). The official 1.4.61 desktop client's
+    // GameEndView computes the same value, so pinning keeps the END_GAME_INFO
+    // payload readable in both directions: an older client skips the additive
+    // endReason field by name, and our proxy reads the older server's view.
+    // Re-derive only on a deliberate wire break.
+    private static final long serialVersionUID = 6881988264274364339L;
 
     private PlayerView clientPlayer = null;
     private final List<PlayerView> players = new ArrayList<>();
@@ -30,6 +40,13 @@ public class GameEndView implements Serializable {
     private int wins;
     private int loses;
     private final int winsNeeded;
+    /**
+     * Why the game ended for the player this view belongs to
+     * ({@link mage.game.GameEndReason} values), or null for the spectator /
+     * watcher view, which has no subject player. ADDITIVE wire field: an older
+     * client skips it by name under the pinned serialVersionUID above.
+     */
+    private final String endReason;
 
     public GameEndView(GameState state, Game game, UUID playerId, Table table) {
         startTime = game.getStartTime();
@@ -63,11 +80,13 @@ public class GameEndView implements Serializable {
 
         Match match = table.getMatch();
         MatchPlayer matchWinner = null;
+        MatchPlayer subjectMatchPlayer = null;
         winsNeeded = match.getOptions().getWinsNeeded();
         StringBuilder additonalText = new StringBuilder();
         for (MatchPlayer matchPlayer : match.getPlayers()) {
             if (matchPlayer.getPlayer().equals(you)) {
                 wins = matchPlayer.getWins();
+                subjectMatchPlayer = matchPlayer;
             }
             if (matchPlayer.isMatchWinner()) {
                 matchWinner = matchPlayer;
@@ -104,6 +123,17 @@ public class GameEndView implements Serializable {
         }
         additionalInfo = additonalText.toString();
 
+        // Reason for THIS player only: a watcher (playerId == null) has no subject
+        // seat, so it stays null rather than reporting someone else's exit. The
+        // timer/idle/quit flags are read from the same Player/MatchPlayer this
+        // constructor already inspects — they are authoritative over the reason
+        // the engine recorded, because timeout/idle/quit all enter the game end
+        // through an ordinary concede.
+        endReason = playerId == null ? null : GameEndReason.resolve(
+                you != null && you.hasTimerTimeout(),
+                you != null && you.hasIdleTimeout(),
+                subjectMatchPlayer != null && subjectMatchPlayer.hasQuit(),
+                state.getEndReason());
     }
 
     public Date getStartTime() {
@@ -152,6 +182,17 @@ public class GameEndView implements Serializable {
 
     public PlayerView getClientPlayer() {
         return clientPlayer;
+    }
+
+    /**
+     * Why the game ended for this view's player: one of the
+     * {@link mage.game.GameEndReason} values ("llm_failure", "concede",
+     * "timeout", "idle", "quit") or "unknown" when nothing was recorded (a
+     * played-out win or a draw). Null on the spectator/watcher view, which has
+     * no subject player.
+     */
+    public String getEndReason() {
+        return endReason;
     }
 
 }

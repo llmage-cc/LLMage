@@ -221,6 +221,9 @@ export function handleMessage(
               gameEndMs: existing.gameEndMs,
               matchStartMs: existing.matchStartMs,
               matchEndMs: existing.matchEndMs,
+              // A partial never carries the reason; keep the rich one (a partial
+              // REPLACES gameEnd rather than merging).
+              endReason: existing.endReason,
             })
           }
           break
@@ -233,6 +236,7 @@ export function handleMessage(
           additionalInfo: goMsg.additionalInfo ? stripServerHtml(goMsg.additionalInfo) : undefined,
           matchScore: goMsg.matchScore ? stripServerHtml(goMsg.matchScore) : undefined,
           players: goMsg.players,
+          endReason: goMsg.endReason,
           ...durations,
         })
         break
@@ -243,6 +247,10 @@ export function handleMessage(
         additionalInfo: goMsg.additionalInfo ? stripServerHtml(goMsg.additionalInfo) : undefined,
         matchScore: goMsg.matchScore ? stripServerHtml(goMsg.matchScore) : undefined,
         players: goMsg.players,
+        // Authoritative end reason for the viewer's own seat (rich payload only;
+        // absent for a watcher / older server, in which case the dialog falls back
+        // to the 2-seat fatal-log-line inference). Read by GameEndDialog.
+        endReason: goMsg.endReason,
         ...durations,
       })
       // Audio: the authoritative end-of-game payload decides the win/loss

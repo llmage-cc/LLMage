@@ -1092,6 +1092,11 @@ public class TableController {
             gameOptions.planeChase = match.getOptions().isPlaneChase();
             gameOptions.perPlayerEmblemCards = match.getOptions().getPerPlayerEmblemCards();
             gameOptions.globalEmblemCards = match.getOptions().getGlobalEmblemCards();
+            // test-mode (proxy request): don't shuffle the starting libraries, so a deck sent in a
+            // known order deals a deterministic opening hand. Without this copy the flag died in
+            // MatchOptions and every live game always shuffled (only unit tests, which build
+            // GameOptions directly, ever saw it work).
+            gameOptions.skipInitShuffling = match.getOptions().isSkipInitShuffling();
             match.getGame().setGameOptions(gameOptions);
             managerFactory.gameManager().createGameSession(match.getGame(), userPlayerMap, table.getId(), choosingPlayerId, gameOptions);
             String creator = null;

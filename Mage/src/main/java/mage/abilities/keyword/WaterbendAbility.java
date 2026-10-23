@@ -4,6 +4,7 @@ import mage.abilities.Ability;
 import mage.abilities.SpellAbility;
 import mage.abilities.StaticAbility;
 import mage.abilities.costs.*;
+import mage.abilities.costs.OptionalCostPrompt;
 import mage.abilities.costs.common.WaterbendCost;
 import mage.constants.Outcome;
 import mage.constants.Zone;
@@ -76,7 +77,7 @@ public class WaterbendAbility extends StaticAbility implements OptionalAdditiona
         }
 
         this.resetCost();
-        boolean canPay = additionalCost.canPay(ability, this, ability.getControllerId(), game);
+        boolean canPay = OptionalCostPrompt.canPay(additionalCost, ability, this, ability.getControllerId(), game);
         if (!canPay || !player.chooseUse(Outcome.Exile, promptString + amount + "}?", ability, game)) {
             return;
         }

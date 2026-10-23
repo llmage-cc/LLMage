@@ -97,6 +97,12 @@ class MindlinkMechTriggeredAbility extends TriggeredAbilityImpl {
 
 class MindlinkMechWatcher extends Watcher {
 
+    // Pinned 2026-10-20 to the value scripts/serial-uid-manifest.txt already declares: upstream
+    // removed the static invalidFilter field and its static initializer, which moved the default
+    // UID (-2994963353540694285 -> -1433215387046706543). The pin freezes the wire UID so replays
+    // written before the sync stay loadable; a deliberate format break must re-derive it.
+    private static final long serialVersionUID = -2994963353540694285L;
+
     private final Map<MageObjectReference, Integer> crewCount = new HashMap<>();
 
     MindlinkMechWatcher() {

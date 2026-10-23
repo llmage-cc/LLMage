@@ -4,6 +4,7 @@ import mage.abilities.Ability;
 import mage.abilities.SpellAbility;
 import mage.abilities.StaticAbility;
 import mage.abilities.costs.*;
+import mage.abilities.costs.OptionalCostPrompt;
 import mage.abilities.costs.common.CollectEvidenceCost;
 import mage.abilities.hint.common.EvidenceHint;
 import mage.constants.Outcome;
@@ -80,7 +81,7 @@ public class CollectEvidenceAbility extends StaticAbility implements OptionalAdd
         }
 
         this.resetCost();
-        boolean canPay = additionalCost.canPay(ability, this, ability.getControllerId(), game);
+        boolean canPay = OptionalCostPrompt.canPay(additionalCost, ability, this, ability.getControllerId(), game);
         if (!canPay || !player.chooseUse(Outcome.Exile, promptString + amount + '?', ability, game)) {
             return;
         }

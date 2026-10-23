@@ -5,6 +5,7 @@ import mage.abilities.SpellAbility;
 import mage.abilities.StaticAbility;
 import mage.abilities.common.EntersBattlefieldTriggeredAbility;
 import mage.abilities.costs.*;
+import mage.abilities.costs.OptionalCostPrompt;
 import mage.abilities.costs.mana.ManaCostsImpl;
 import mage.abilities.effects.CreateTokenCopySourceEffect;
 import mage.abilities.effects.OneShotEffect;
@@ -85,7 +86,7 @@ public class SquadAbility extends StaticAbility implements OptionalAdditionalSou
             times = (activatedCount + 1) + (activatedCount == 0 ? " time " : " times ");
             // TODO: add AI support to find max number of possible activations (from available mana)
             //  canPay checks only single mana available, not total mana usage
-            if (cost.canPay(ability, this, ability.getControllerId(), game)
+            if (OptionalCostPrompt.canPay(cost, ability, this, ability.getControllerId(), game)
                     && player.chooseUse(/*Outcome.Benefit*/Outcome.AIDontUseIt,
                     "Pay " + times + cost.getText(false) + " ?", ability, game)) {
                 cost.activate();

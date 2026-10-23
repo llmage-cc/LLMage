@@ -3,6 +3,7 @@ package mage.abilities.effects.common;
 import mage.abilities.Ability;
 import mage.abilities.Mode;
 import mage.abilities.costs.Cost;
+import mage.abilities.costs.OptionalCostPrompt;
 import mage.abilities.effects.Effect;
 import mage.abilities.effects.OneShotEffect;
 import mage.constants.Outcome;
@@ -41,7 +42,7 @@ public class DoIfAnyNumberCostPaid extends OneShotEffect {
         int timesPaid = 0;
         while (controller.canRespond()) {
             cost.clearPaid();
-            if (cost.canPay(source, source, source.getControllerId(), game)
+            if (OptionalCostPrompt.canPay(cost, source, source, source.getControllerId(), game)
                     && controller.chooseUse(
                     outcome, "Pay " + costText + "? You have paid this cost " +
                             timesPaid + " time" + (timesPaid != 1 ? "s" : ""), source, game

@@ -23,6 +23,13 @@ import java.util.*;
  */
 public abstract class TargetImpl implements Target {
 
+    // Pinned 2026-10-20 to the value scripts/serial-uid-manifest.txt already declares: this class is
+    // in the save surface ('observed' — saved .game files carry it), and adding
+    // autoTargetLevelForPlayer changed the default UID (-4196177995502506972 -> -4964447497525297870).
+    // The pin freezes the wire UID so earlier replays stay loadable; a deliberate format break must
+    // re-derive it explicitly.
+    private static final long serialVersionUID = -4196177995502506972L;
+
     protected final Map<UUID, Integer> targets = new LinkedHashMap<>();
     protected final Map<UUID, Integer> zoneChangeCounters = new HashMap<>();
 
@@ -839,6 +846,45 @@ public abstract class TargetImpl implements Target {
         return tryToAutoChoose(abilityControllerId, source, game, possibleTargets);
     }
 
+    /**
+     * Auto-target level for a seat (see {@link #tryToAutoChoose}).
+     * <p>
+     * Level 2 is upstream's behaviour (AUTO_TARGET_ALL): a lone legal target is chosen
+     * without a prompt. Level 1 is the fork's NON_FEEL_BAD guard for genuine bot seats.
+     * <p>
+     * Level 1 applies to bot seats only ({@link Player#isComputer()} — ComputerPlayer,
+     * the LLM player and the MAD/MCTS sims). It must NOT apply to a human without
+     * controlling player user data, and it must NOT apply to the scripted test seats:
+     * {@code TestPlayer} implements {@code Player}, returns {@code isHuman() == false}
+     * and {@code isComputer() == AIRealGameSimulation} (FALSE by default), so it takes
+     * the level-2 branch exactly like upstream. Using level 1 for every non-human seat
+     * turned single-target prompts into real prompts for scripted tests and left their
+     * staged targets unconsumed (OblivionSowerTest, TheCreationOfAvacynTest x3,
+     * StingBilbosSwordTest).
+     * <p>
+     * Rationale for the level-1 bot branch: level 2 skips the own-permanent feel-bad
+     * filter in {@link #tryToAutoChoose}, so a bot's removal spell silently auto-targeted
+     * its OWN permanent when that was the only legal target
+     * (issues/2026-09-12-bot-auto-target-own-permanent: game 4c447095 T11, Dark Banishing
+     * auto-killed the caster's own Ephara's Warden with no target prompt). Level 1 keeps
+     * auto-choose enabled (the {@code playerAutoTargetLevel > 0} gate) while still running
+     * the guard; when the guard filters every candidate, tryToAutoChoose returns null and
+     * the player's own chooseTarget path decides — for the LLM player that surfaces a real
+     * target prompt. The constant is the same default the client gives human preferences
+     * ({@code mage.client.constants.Constants.AUTO_TARGET_NON_FEEL_BAD}; mage.core must not
+     * depend on the client module, so it is spelled out here).
+     */
+    public static int autoTargetLevelForPlayer(Player player, Game game) {
+        if (player.isHuman() && player.getControllingPlayersUserData(game) != null) {
+            // Ensure that non-strictChooseMode ComputerPlayer will still use this ability
+            return player.getControllingPlayersUserData(game).getAutoTargetLevel();
+        }
+        if (player.isComputer()) {
+            return 1;
+        }
+        return 2;
+    }
+
     @Override
     public UUID tryToAutoChoose(UUID abilityControllerId, Ability source, Game game, Collection<UUID> possibleTargets) {
         if (possibleTargets == null || game == null || source == null) {
@@ -849,24 +895,7 @@ public abstract class TargetImpl implements Target {
         if (player == null) {
             return null;
         }
-        int playerAutoTargetLevel;
-        if (player.isHuman() && player.getControllingPlayersUserData(game) != null) { // Ensure that non-strictChooseMode ComputerPlayer will still use this ability
-            playerAutoTargetLevel = player.getControllingPlayersUserData(game).getAutoTargetLevel();
-        } else {
-            // Bots (MAD/MCTS/LLM): use the NON_FEEL_BAD level (1), not ALL (2) — the same
-            // default the client gives human preferences
-            // (mage.client.constants.Constants.AUTO_TARGET_NON_FEEL_BAD; the constant can't be
-            // referenced here, mage.core must not depend on the client module).
-            // Level 2 skips the own-permanent feel-bad filter in the loop below, so a bot's
-            // removal spell silently auto-targeted its OWN permanent when that was the only
-            // legal target (Dark Banishing auto-killed the caster's own Ephara's Warden
-            // with no target prompt).
-            // Level 1 keeps auto-choose enabled (the `playerAutoTargetLevel > 0` gate below)
-            // while still running the guard; when the guard filters every candidate,
-            // tryToAutoChoose returns null and the player's own chooseTarget path decides —
-            // for the LLM player that surfaces a real target prompt.
-            playerAutoTargetLevel = 1;
-        }
+        int playerAutoTargetLevel = autoTargetLevelForPlayer(player, game);
 
         // freeze protection on disconnect - auto-choice works for online players only
         boolean isOnline = player.canRespond();

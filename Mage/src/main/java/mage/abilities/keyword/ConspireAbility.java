@@ -4,6 +4,7 @@ import mage.abilities.Ability;
 import mage.abilities.SpellAbility;
 import mage.abilities.StaticAbility;
 import mage.abilities.costs.*;
+import mage.abilities.costs.OptionalCostPrompt;
 import mage.abilities.costs.common.TapTargetCost;
 import mage.abilities.costs.mana.ManaCostsImpl;
 import mage.abilities.effects.common.CastSourceTriggeredAbility;
@@ -124,7 +125,7 @@ public class ConspireAbility extends StaticAbility implements OptionalAdditional
             return;
         }
         // AI supports conspire
-        if (!conspireCost.canPay(ability, this, getControllerId(), game)
+        if (!OptionalCostPrompt.canPay(conspireCost, ability, this, getControllerId(), game)
                 || !player.chooseUse(Outcome.Benefit, "Pay "
                 + conspireCost.getText(false) + " ?", ability, game)) {
             return;

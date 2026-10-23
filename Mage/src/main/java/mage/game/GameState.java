@@ -99,6 +99,22 @@ public class GameState implements Serializable, Copyable<GameState> {
     private int stepNum = 0;
     private UUID extraTurnId = null; // id of the current extra turn (null on normal turn or after game stopped)
     private boolean gameOver;
+    /**
+     * Why the game ended ({@link GameEndReason} values), or null when nothing
+     * was recorded — a played-out win/draw, an old save, or a game that ended
+     * before this field existed. A plain String on purpose: the value crosses
+     * the .game save and the RPC GameEndView, both read by builds older than
+     * the writer, and an unknown enum constant would fail to deserialize where
+     * an unknown String is simply skipped.
+     * <p>
+     * Set by the engine at the concession entry points and by LLMPlayer on a
+     * terminal provider failure; never by the ordinary loss path (lostForced /
+     * drew share the concede queue and must stay "unknown"). Cleared again by
+     * GameImpl.leave when the departing seat's exit does NOT end the game, so a
+     * mid-game concession in a &gt;2-seat game can never be reported as the reason
+     * the game ended.
+     */
+    private String endReason;
     private boolean paused;
     private ContinuousEffects effects;
     private TriggeredAbilities triggers; // all normal triggers
@@ -301,6 +317,7 @@ public class GameState implements Serializable, Copyable<GameState> {
         this.lookedAt.putAll(state.lookedAt);
         this.companion = state.companion.copy();
         this.gameOver = state.gameOver;
+        this.endReason = state.endReason;
         this.paused = state.paused;
 
         this.activePlayerId = state.activePlayerId;
@@ -849,6 +866,19 @@ public class GameState implements Serializable, Copyable<GameState> {
 
     public void endGame() {
         this.gameOver = true;
+    }
+
+    /**
+     * Why the game ended ({@link GameEndReason} values), or null when nothing
+     * was recorded. Carried as a String so a build older than the writer skips
+     * it instead of failing on an unknown enum constant.
+     */
+    public String getEndReason() {
+        return endReason;
+    }
+
+    public void setEndReason(String endReason) {
+        this.endReason = endReason;
     }
 
     void applyEffects(Game game) {

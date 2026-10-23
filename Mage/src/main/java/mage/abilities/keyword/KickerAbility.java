@@ -4,6 +4,7 @@ import mage.abilities.Ability;
 import mage.abilities.SpellAbility;
 import mage.abilities.StaticAbility;
 import mage.abilities.costs.*;
+import mage.abilities.costs.OptionalCostPrompt;
 import mage.abilities.costs.mana.ManaCostsImpl;
 import mage.constants.Outcome;
 import mage.constants.Zone;
@@ -196,9 +197,10 @@ public class KickerAbility extends StaticAbility implements OptionalAdditionalSo
                     int activatedCount = getKickedCounterStrict(game, ability, kickerCost.getText(true));
                     times = (activatedCount + 1) + (activatedCount == 0 ? " time " : " times ");
                 }
-                // TODO: add AI support to find max number of possible activations (from available mana)
-                //  canPay checks only single mana available, not total mana usage
-                if (kickerCost.canPay(ability, this, ability.getControllerId(), game)
+                // Ask for unpayable mana too (upstream prompt shape): OptionalCostPrompt answers like
+                // upstream's permissive ManaCost.canPay for mana costs, so the question is always
+                // offered; if the player says yes and the mana is short, the cast fails at payment.
+                if (OptionalCostPrompt.canPay(kickerCost, ability, this, ability.getControllerId(), game)
                         && player.chooseUse(/*Outcome.Benefit*/Outcome.AIDontUseIt,
                         "Pay " + times + kickerCost.getText(false) + " ?", ability, game)) {
                     this.activateKicker(kickerCost, ability, game);

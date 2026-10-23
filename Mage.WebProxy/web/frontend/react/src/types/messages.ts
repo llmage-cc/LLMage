@@ -128,6 +128,14 @@ export interface GameOverMessage {
   matchStartMs?: number
   matchEndMs?: number
   /**
+   * Why the game ended for the VIEWER'S OWN seat, when the server knows
+   * (mage.game.GameEndReason): "llm_failure" | "concede" | "timeout" | "idle" |
+   * "quit" | "unknown". Rich payload only — a watcher has no seat (null) and an
+   * older/stock server omits the key entirely, so `undefined` must keep working
+   * (the frontend then falls back to its 2-seat fatal-log-line inference).
+   */
+  endReason?: string
+  /**
    * false = PARTIAL payload (the server's GAME_OVER callback carries only a message string,
    * no hasWon/score). The frontend must not let a partial clobber a rich END_GAME_INFO
    * summary that arrived first — that inversion showed "💀 Defeat" to the winner.

@@ -84,6 +84,10 @@ enum KioraOfSaltAndSandCondition implements Condition {
 
 class KioraOfSaltAndSandWatcher extends Watcher {
 
+    // Pinned 2026-10-20 (new save-surface class): a fixed UID keeps the wire form stable from the
+    // first build that can write it, instead of re-deriving on every shape edit.
+    private static final long serialVersionUID = 1L;
+
     final Set<UUID> activatedPlayers = new HashSet<>();
 
     KioraOfSaltAndSandWatcher() {

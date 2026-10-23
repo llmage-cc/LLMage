@@ -126,6 +126,10 @@ cp Mage.WebProxy/target/mage-web-proxy-1.4.62.jar \
    Mage.Server/release/plugins/mage-web-proxy-1.4.62.jar
 ```
 
+The numbers above are the current release (1.4.62). `deploy-release.sh` derives them from
+the root pom's `<mage-version>` and refuses a release tree that carries two versions of
+one artifact (a stale-tree duplicate was hit and fixed during the 2026-10-20 deploy).
+
 </details>
 
 **Do not skip `mage-sets`** — without it the server loads 0 cards and enters a

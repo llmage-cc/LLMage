@@ -254,7 +254,10 @@ public class Deck implements Serializable, Copyable<Deck> {
         return cards
                 .stream()
                 .filter(card -> !card.isExtraDeckCard())
-                .collect(Collectors.toSet());
+                // LinkedHashSet: the deck's own order must survive. Collectors.toSet() returns a
+                // HashSet keyed by Card identity hash, so the library was built in a per-run random
+                // order even with skipInitShuffling (test mode) and an ordered deck.
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     public Card findCard(UUID cardId) {

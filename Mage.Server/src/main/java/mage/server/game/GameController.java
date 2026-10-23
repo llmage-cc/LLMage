@@ -11,6 +11,7 @@ import mage.collectors.DataCollectorServices;
 import mage.constants.ManaType;
 import mage.constants.PlayerAction;
 import mage.game.Game;
+import mage.game.GameEndReason;
 import mage.game.GameOptions;
 import mage.game.GameState;
 import mage.game.PutToBattlefieldInfo;
@@ -699,7 +700,15 @@ public class GameController implements GameCallback {
                     Player player = game.getPlayer(playerId);
                     if (player != null) {
                         game.informPlayers(player.getLogName() + " wants to concede");
-                        game.setConcedingPlayer(getPlayerId(userId));
+                        // This is the concede BUTTON's path — it bypasses
+                        // PlayerImpl.concede, which is where the other concede
+                        // entry (quit/timeout/idle, LLM terminal failure) records
+                        // the reason. GameEndView reports it so a >2-seat game or
+                        // an LLM failure no longer has to be inferred from logs.
+                        if (game.getState().getEndReason() == null) {
+                            game.getState().setEndReason(GameEndReason.CONCEDE);
+                        }
+                        game.setConcedingPlayer(playerId);
                     }
                 }
                 break;

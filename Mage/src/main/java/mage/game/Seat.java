@@ -13,7 +13,7 @@ import java.io.Serializable;
  */
 public class Seat implements Serializable {
 
-    // Official-server wire compat: upstream 1.4.61 computes
+    // Official-server wire compat (xmage-today-webui): upstream 1.4.62 computes
     // 5595719867240619273; our llmPlayerConfig field rides along harmlessly
     // under a matching suid — the proxy SENDS Seat (inside MatchOptions) on
     // create_table, and an unpinned mismatch makes stock servers reject the

@@ -23,6 +23,7 @@ import mage.constants.RangeOfInfluence;
 import mage.constants.SpellAbilityType;
 import mage.constants.Zone;
 import mage.game.Game;
+import mage.game.GameEndReason;
 import mage.game.GameState;
 import mage.game.combat.CombatGroup;
 import mage.game.match.Match;
@@ -2254,8 +2255,56 @@ public class LLMPlayer extends ComputerPlayer {
         addSelfLog(gameTurnStep(game) + ": TERMINAL LLM FAILURE in " + what
                 + " — conceding the game (" + cause.getMessage() + ")");
         game.informPlayers(getLogName() + " loses the game (LLM provider failure).");
+        // The concede below is the engine's ordinary unwind, which by itself only
+        // says "conceded" — indistinguishable from a click-concede or a timeout.
+        // Stamp the cause on the state first so GameEndView can report it exactly
+        // (and for any seat count, unlike the client's 2-seat log-line heuristic).
+        game.getState().setEndReason(GameEndReason.LLM_FAILURE);
         concede(game);
         return true;
+    }
+
+    /**
+     * True while the engine has not entered its priority loop yet — the window
+     * in which {@code GameImpl.init} asks for the starting player, opening-hand
+     * actions and the mulligan bottom card. {@code GameState.getPriorityPlayerId}
+     * is only set by the priority loop itself ({@code GameImpl.playPriority})
+     * and by the cleanup step, so it is null for exactly those pre-game choices
+     * (the engine uses the same signal to tell "started game" from "not started
+     * game" in {@code GameImpl.setConcedingPlayer}).
+     */
+    private static boolean isPreGameChoice(Game game) {
+        return game.getState().getPriorityPlayerId() == null;
+    }
+
+    /**
+     * Terminal-failure guard for a target choice made BEFORE the priority loop.
+     * <p>
+     * Pre-game choices (starting player, opening-hand action, mulligan bottom
+     * card) run inside {@code GameImpl.init}, i.e. outside the game's error and
+     * auto-restore handling: an exception thrown there escapes
+     * {@code GameImpl.start} → {@code GameWorker} →
+     * {@code GameController.endGameWithError} → {@code endWithTechnicalWinner},
+     * which picks a winner by life/time/<b>random</b> and records NO end reason
+     * (measured live 2026-10-21: a provider failing the starting-player choice
+     * ended a 2-seat game as a technical win with a plain "Victory!" dialog).
+     * <p>
+     * Target selection has no legal "pass", so the seat forfeits:
+     * {@link #concedeOnTerminalFailure} stamps {@link GameEndReason#LLM_FAILURE}
+     * and drives the engine's own concede unwind, which ends the game with the
+     * other seat as the winner.
+     * Transient failures still rethrow — the retry ladder owns those.
+     *
+     * @return the engine's "not chosen" value, so its caller takes the
+     *         no-choice branch instead of consuming a target that is not there
+     */
+    private boolean failPreGameTargetChoice(Game game, Target target, RuntimeException cause) {
+        if (!isPreGameChoice(game) || !thrownAfterFullLadder(cause)) {
+            throw cause;
+        }
+        String prompt = target != null ? target.getMessage(game) : "?";
+        concedeOnTerminalFailure(game, cause, "pre-game target choice [" + prompt + "]");
+        return false;
     }
 
     // Custom skip tracking (replaces PlayerImpl skip flags which never auto-cancel)
@@ -2348,9 +2397,19 @@ public class LLMPlayer extends ComputerPlayer {
                 done = promptAndExecute(game, attempt == 2);
             } catch (RuntimeException e) {
                 if (thrownAfterFullLadder(e)) {
-                    // Terminal provider failure at priority — concede so the
-                    // game ends with a recorded result instead of ghosting.
-                    return concedeOnTerminalFailure(game, e, "priority");
+                    // Terminal provider failure at priority (the both-empty shape:
+                    // no content and no reasoning after the full effort descent, or
+                    // a non-retryable provider error): take the
+                    // one unconditionally-legal action — pass priority — so the
+                    // seat plays on instead of forfeiting the match. Conceding stays
+                    // for the callbacks that have no legal pass (deck assessment,
+                    // mulligan, sideboard).
+                    return passPriorityOnUnrecoverable(game,
+                            "LLM priority: terminal provider failure — the decision is"
+                            + " unanswerable (both channels empty after the full"
+                            + " reasoning-effort ladder, or a non-retryable provider"
+                            + " error): " + e.getMessage()
+                            + ". Taking the legal fallback: pass priority; the match continues.");
                 }
                 throw e;
             }
@@ -2368,8 +2427,24 @@ public class LLMPlayer extends ComputerPlayer {
         String stuck = "LLM priority: stuck decision — LLM kept choosing rejected "
                 + "actions after 3 attempts (" + detail + "). Taking the legal "
                 + "fallback: pass priority.";
-        logger.fatal(stuck);
-        addSelfLog(gameTurnStep(game) + ": " + stuck);
+        return passPriorityOnUnrecoverable(game, stuck);
+    }
+
+    /**
+     * Last-resort priority fallback for a decision that cannot be answered:
+     * report the failure loudly (FATAL + self-log) and take the one
+     * unconditionally-legal action — pass priority — instead of ending the
+     * match. Shared by the terminal-provider-failure guard and the
+     * exhausted-retry path.
+     *
+     * <p>This is NOT a silent default: it is the explicit semantic change
+     * that lets an LLM seat play on when its provider fails.
+     * Only priority() may use it; callbacks with no legal pass (deck assessment,
+     * chooseMulligan, sideboard) still call {@link #concedeOnTerminalFailure}.
+     */
+    private boolean passPriorityOnUnrecoverable(Game game, String report) {
+        logger.fatal(report);
+        addSelfLog(gameTurnStep(game) + ": " + report);
         pass(game);
         return true;
     }
@@ -4426,9 +4501,13 @@ public class LLMPlayer extends ComputerPlayer {
         if (cards.isEmpty() && players.isEmpty())
             return super.chooseTarget(outcome, target, source, game);
 
-        return presentTargetChoice(target.getMessage(game),
-                target.getMinNumberOfTargets(), target.getMaxNumberOfTargets(),
-                cards, players, target, source, game, false);
+        try {
+            return presentTargetChoice(target.getMessage(game),
+                    target.getMinNumberOfTargets(), target.getMaxNumberOfTargets(),
+                    cards, players, target, source, game, false);
+        } catch (RuntimeException e) {
+            return failPreGameTargetChoice(game, target, e);
+        }
     }
 
     /**
@@ -4474,9 +4553,13 @@ public class LLMPlayer extends ComputerPlayer {
                     + "The last card you pick will end up on top.]";
         }
 
-        return presentCardChoice(reason,
-                target.getMinNumberOfTargets(), max,
-                cards, target, source, game, true);
+        try {
+            return presentCardChoice(reason,
+                    target.getMinNumberOfTargets(), max,
+                    cards, target, source, game, true);
+        } catch (RuntimeException e) {
+            return failPreGameTargetChoice(game, target, e);
+        }
     }
 
     // Called by putCardsOnTopOfLibrary (Ponder, scry, etc.) — choose() without "target"
@@ -4501,9 +4584,13 @@ public class LLMPlayer extends ComputerPlayer {
                     + "The last card you pick will end up on top.]";
         }
 
-        return presentCardChoice(reason,
-                target.getMinNumberOfTargets(), max,
-                cards, target, source, game, true);
+        try {
+            return presentCardChoice(reason,
+                    target.getMinNumberOfTargets(), max,
+                    cards, target, source, game, true);
+        } catch (RuntimeException e) {
+            return failPreGameTargetChoice(game, target, e);
+        }
     }
 
     private boolean presentCardChoice(String reason, int min, int max,

@@ -5,6 +5,7 @@ import mage.MageObject;
 import mage.abilities.Ability;
 import mage.abilities.Mode;
 import mage.abilities.costs.Cost;
+import mage.abilities.costs.OptionalCostPrompt;
 import mage.abilities.effects.ContinuousEffect;
 import mage.abilities.effects.Effect;
 import mage.abilities.effects.Effects;
@@ -62,7 +63,7 @@ public class DoUnlessControllerPaysEffect extends OneShotEffect {
             boolean doEffect = true;
 
             // check if controller is willing to pay
-            if (cost.canPay(source, source, controller.getId(), game) && controller.chooseUse(Outcome.Detriment, message, source, game)) {
+            if (OptionalCostPrompt.canPay(cost, source, source, controller.getId(), game) && controller.chooseUse(Outcome.Detriment, message, source, game)) {
                 cost.clearPaid();
                 if (cost.pay(source, game, source, controller.getId(), false, null)) {
                     if (!game.isSimulation()) {

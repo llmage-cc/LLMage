@@ -6,6 +6,7 @@ import mage.abilities.StaticAbility;
 import mage.abilities.common.EntersBattlefieldTriggeredAbility;
 import mage.abilities.condition.common.GiftWasPromisedCondition;
 import mage.abilities.costs.*;
+import mage.abilities.costs.OptionalCostPrompt;
 import mage.abilities.effects.OneShotEffect;
 import mage.cards.Card;
 import mage.constants.GiftType;
@@ -83,7 +84,7 @@ public class GiftAbility extends StaticAbility implements OptionalAdditionalSour
             return;
         }
         additionalCost.reset();
-        if (!additionalCost.canPay(ability, this, ability.getControllerId(), game)
+        if (!OptionalCostPrompt.canPay(additionalCost, ability, this, ability.getControllerId(), game)
                 || !player.chooseUse(Outcome.Benefit, "Promise an opponent " + giftType.getName() + '?', ability, game)) {
             return;
         }

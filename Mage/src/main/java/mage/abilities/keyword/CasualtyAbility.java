@@ -5,6 +5,7 @@ import mage.abilities.SpellAbility;
 import mage.abilities.StaticAbility;
 import mage.abilities.common.delayed.ReflexiveTriggeredAbility;
 import mage.abilities.costs.*;
+import mage.abilities.costs.OptionalCostPrompt;
 import mage.abilities.costs.common.SacrificeTargetCost;
 import mage.abilities.effects.common.CopySourceSpellEffect;
 import mage.constants.ComparisonType;
@@ -77,7 +78,7 @@ public class CasualtyAbility extends StaticAbility implements OptionalAdditional
         }
 
         this.resetCasualty();
-        boolean canPay = additionalCost.canPay(ability, this, ability.getControllerId(), game);
+        boolean canPay = OptionalCostPrompt.canPay(additionalCost, ability, this, ability.getControllerId(), game);
         if (!canPay || !player.chooseUse(Outcome.Sacrifice, promptString, ability, game)) {
             return;
         }

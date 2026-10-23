@@ -15,6 +15,10 @@ import java.util.UUID;
  */
 public class NoncombatDamageToPlayersWatcher extends Watcher {
 
+    // Pinned 2026-10-20 (new save-surface class): a fixed UID keeps the wire form stable from the
+    // first build that can write it, instead of re-deriving on every shape edit.
+    private static final long serialVersionUID = 1L;
+
     private final Set<UUID> damagedThisTurn = new HashSet<>();
     private final Set<UUID> damagedLastTurn = new HashSet<>();
 

@@ -20,8 +20,11 @@ import {
  * A win caused by an opponent's TERMINAL LLM-provider failure is presented
  * distinctly from a played-out win: the title reads
  * "Victory (by forfeit)" and a note names the cause. The discriminator is the
- * fatal log line the browser already holds (see utils/endGame.ts for why the
- * wire carries no reason) — a two-seat game with that line is a forfeit win.
+ * authoritative `endReason` the proxy puts on the rich game_over frame for the
+ * viewer's own seat ("llm_failure" -> forfeit win, any other recorded reason ->
+ * ordinary win). Only when the field is absent (a stock/older server, or a
+ * watcher's null) does it fall back to the two-seat fatal-log-line inference —
+ * see utils/endGame.ts for the full precedence.
  *
  * GLYPH SAFETY: the win/loss marker is a plain ASCII tag `[win]`/`[loss]`.
  * A trophy EMOJI has no guaranteed font on Linux hosts and rendered as the
@@ -48,9 +51,16 @@ export function GameEndDialog({ result }: { result: string }) {
   const matchDuration = formatDurationWindow(gameEnd?.matchStartMs, gameEnd?.matchEndMs)
 
   // Technical/forfeit win vs played-out win — pure rule in utils/endGame.ts.
-  // The player count is the dialog's own life-total row (the seats this game
-  // had); the log flag is read from the live event log the rail already fills.
-  const kind = endDialogKind(hasWon, players?.length ?? 0, logHasTerminalFailure(eventLog))
+  // The end reason is the authoritative wire signal (rich game_over, own seat;
+  // absent = stock/older server or watcher -> fallback). The player count is the
+  // dialog's own life-total row (the seats this game had); the log flag is read
+  // from the live event log the rail already fills.
+  const kind = endDialogKind(
+    hasWon,
+    players?.length ?? 0,
+    logHasTerminalFailure(eventLog),
+    gameEnd?.endReason,
+  )
   const isTechnical = kind === 'technical-victory'
   const titleColor = hasWon
     ? 'var(--accent-success, #4caf50)'

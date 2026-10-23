@@ -581,8 +581,15 @@ public abstract class AbilityImpl implements Ability {
             // if cast for noMana no Alternative costs are allowed
             if (canUseAlternativeCost && !noMana && ability instanceof AlternativeSourceCosts) {
                 AlternativeSourceCosts alternativeSpellCosts = (AlternativeSourceCosts) ability;
+                // Prompt shape, not playability: filter the menu with the UPSTREAM canPay answer
+                // (OptionalCostPrompt: mana -> true, non-mana -> real). Upstream's ManaCost.canPay
+                // was permissive, so a mana alternative (evoke, dash) was always listed even when
+                // unpayable; a non-mana alternative (exile/discard a card) was and is filtered for
+                // real. Real playability stays gated by PlayerImpl.canPlay; picking an unpayable
+                // mana alternative fails at payment time. canActivateAlternativeCostsNow() keeps
+                // its real answer for callers/tests that ask "can this be activated right now".
                 if (alternativeSpellCosts.isAvailable(this, game)
-                        && alternativeSpellCosts.canActivateAlternativeCostsNow(this, game)
+                        && OptionalCostPrompt.canPay(alternativeSpellCosts.getCosts(), this, this, getControllerId(), game)
                         && (allowedIdentifiers.contains(MageIdentifier.Default) || allowedIdentifiers.contains(ability.getIdentifier()))) {
                     possibleAlternatives.add(alternativeSpellCosts);
                 }
@@ -592,7 +599,7 @@ public abstract class AbilityImpl implements Ability {
         if (canUseAlternativeCost && !noMana) {
             for (AlternativeSourceCosts alternativeSourceCosts : controller.getAlternativeSourceCosts()) {
                 if (alternativeSourceCosts.isAvailable(this, game)
-                        && alternativeSourceCosts.canActivateAlternativeCostsNow(this, game)
+                        && OptionalCostPrompt.canPay(alternativeSourceCosts.getCosts(), this, this, getControllerId(), game)
                         && (allowedIdentifiers.contains(MageIdentifier.Default) || allowedIdentifiers.contains(alternativeSourceCosts.getIdentifier()))) {
                     possibleAlternatives.add(alternativeSourceCosts);
                 }

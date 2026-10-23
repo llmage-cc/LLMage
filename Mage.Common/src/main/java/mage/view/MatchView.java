@@ -18,7 +18,7 @@ import mage.game.tournament.TournamentPlayer;
  */
 public class MatchView implements Serializable {
 
-    // Official-server wire compat: upstream 1.4.61 computes
+    // Official-server wire compat (xmage-today-webui): upstream 1.4.62 computes
     // -294697495608883183 for this class shape; our fork-added fields
     // (playerList) ride along harmlessly under a matching suid — with the
     // unpinned (shape-derived) suid, reading a stock server's MatchView

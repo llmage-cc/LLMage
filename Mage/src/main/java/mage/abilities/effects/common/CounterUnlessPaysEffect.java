@@ -3,6 +3,7 @@ package mage.abilities.effects.common;
 import mage.abilities.Ability;
 import mage.abilities.Mode;
 import mage.abilities.costs.Cost;
+import mage.abilities.costs.OptionalCostPrompt;
 import mage.abilities.costs.mana.ManaCost;
 import mage.abilities.dynamicvalue.DynamicValue;
 import mage.abilities.effects.Effect;
@@ -97,7 +98,7 @@ public class CounterUnlessPaysEffect extends OneShotEffect {
         message += costValueMessage + '?';
 
         costToPay.clearPaid();
-        if (!(costToPay.canPay(source, source, player.getId(), game)
+        if (!(OptionalCostPrompt.canPay(costToPay, source, source, player.getId(), game)
                 && player.chooseUse(Outcome.Benefit, message, source, game)
                 && costToPay.pay(source, game, source, spell.getControllerId(), false, null))) {
             game.informPlayers(player.getLogName() + " chooses not to pay " + costValueMessage + " to prevent the counter effect");

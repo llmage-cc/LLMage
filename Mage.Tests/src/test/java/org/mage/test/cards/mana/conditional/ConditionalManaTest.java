@@ -481,10 +481,7 @@ public class ConditionalManaTest extends CardTestPlayerBase {
         waitStackResolved(1, PhaseStep.PRECOMBAT_MAIN, true);
         castSpell(1, PhaseStep.PRECOMBAT_MAIN, playerA, "Gigantosaurus");
         castSpell(1, PhaseStep.PRECOMBAT_MAIN, playerB, "Mana Leak", "Gigantosaurus");
-        // No pay-or-counter dialog def: Jaya's conditional {R}{R}{R} cannot pay Mana Leak's
-        // {3} (instant/sorcery only, no other mana available), so with canPay being a real
-        // payability answer the engine no longer asks the unpayable "pay {3}?" question.
-        // The spell is countered without a dialog (asserted below); no choice is consumed.
+        setChoice(playerA, true);
 
         setStrictChooseMode(true);
         setStopAt(3, PhaseStep.POSTCOMBAT_MAIN);

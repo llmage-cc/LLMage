@@ -28,9 +28,11 @@ public class SearchLibraryMinimumTest extends CardTestPlayerBase {
 
     /**
      * Infernal Tutor with a restricted same-name filter that matches nothing in
-     * the library (the historical T3 scenario): the search must be
-     * a no-op instead of relaxing the minimum (before the fix the searcher could
-     * be offered cards outside the filter).
+     * the library (the historical T3 scenario): the search finds
+     * nothing. The engine offers the chooser for a zero-match restricted
+     * search (the upstream prompt shape) instead of skipping it silently;
+     * the dialog can only select nothing, so the staged skip is consumed
+     * and the library is unchanged.
      */
     @Test
     public void testRestrictedSearchWithZeroMatchesIsNoOp() {
@@ -47,6 +49,8 @@ public class SearchLibraryMinimumTest extends CardTestPlayerBase {
 
         // hand has 1 card left at resolution (Tendrils of Agony), so it is revealed automatically
         castSpell(1, PhaseStep.PRECOMBAT_MAIN, playerA, "Infernal Tutor");
+        // zero legal candidates: the only legal answer is to finish without picking
+        addTarget(playerA, TestPlayer.TARGET_SKIP);
 
         setStrictChooseMode(true);
         setStopAt(1, PhaseStep.BEGIN_COMBAT);

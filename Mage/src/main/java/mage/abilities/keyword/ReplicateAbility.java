@@ -5,6 +5,7 @@ import mage.abilities.SpellAbility;
 import mage.abilities.StaticAbility;
 import mage.abilities.TriggeredAbilityImpl;
 import mage.abilities.costs.*;
+import mage.abilities.costs.OptionalCostPrompt;
 import mage.abilities.costs.mana.ManaCostsImpl;
 import mage.abilities.effects.Effect;
 import mage.abilities.effects.OneShotEffect;
@@ -102,7 +103,7 @@ public class ReplicateAbility extends StaticAbility implements OptionalAdditiona
 
             // TODO: add AI support to find max number of possible activations (from available mana)
             //  canPay checks only single mana available, not total mana usage
-            boolean canPay = additionalCost.canPay(ability, this, ability.getControllerId(), game);
+            boolean canPay = OptionalCostPrompt.canPay(additionalCost, ability, this, ability.getControllerId(), game);
             if (!canPay || !player.chooseUse(/*Outcome.Benefit*/Outcome.AIDontUseIt, payPrompt, ability, game)) {
                 again = false;
             } else {

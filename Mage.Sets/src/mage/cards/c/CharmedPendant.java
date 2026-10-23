@@ -48,6 +48,12 @@ public final class CharmedPendant extends CardImpl {
 
 class CharmedPendantAbility extends ActivatedAbilityImpl {
 
+    // Pinned 2026-10-20 to the value scripts/serial-uid-manifest.txt already declares: the 1.4.62
+    // sync's mana-ability rework changed this class's superclass and constructors, which moved the
+    // default UID (3784822713634860017 -> -4434413848441703209). The pin freezes the wire UID so
+    // replays written before the sync stay loadable; a deliberate format break must re-derive it.
+    private static final long serialVersionUID = 3784822713634860017L;
+
     public CharmedPendantAbility() {
         super(Zone.BATTLEFIELD, new CharmedPendantManaEffect(), new TapSourceCost());
         this.addCost(new MillCardsCost());

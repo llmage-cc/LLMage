@@ -4,6 +4,7 @@ import mage.abilities.Ability;
 import mage.abilities.Mode;
 import mage.abilities.common.delayed.ReflexiveTriggeredAbility;
 import mage.abilities.costs.Cost;
+import mage.abilities.costs.OptionalCostPrompt;
 import mage.abilities.effects.OneShotEffect;
 import mage.constants.Outcome;
 import mage.game.Game;
@@ -52,7 +53,7 @@ public class DoWhenCostPaid extends OneShotEffect {
         if (player == null) {
             return false;
         }
-        if (!cost.canPay(source, source, player.getId(), game)
+        if (!OptionalCostPrompt.canPay(cost, source, source, player.getId(), game)
                 || checkOptional(player, game, source)) {
             return false;
         }

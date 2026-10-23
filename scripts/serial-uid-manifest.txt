@@ -2,7 +2,7 @@
 # serialVersionUID this tree computes.
 # Regenerate: scripts/check-save-uid-manifest.sh --write-manifest [--reference DIR]
 # Enforced by: scripts/check-save-uid-manifest.sh   (compares columns 1 and 2)
-# Scope + documented gaps:
+# Scope + documented gaps: recorded in the fork's commit history.
 # Columns: <class> <serialVersionUID> <reached|subtype|observed>. Do not hand-edit.
 mage.ApprovingObject	-8275258038368331378	reached
 mage.ConditionalMana	-5359273206072302854	reached
@@ -1882,6 +1882,7 @@ mage.cards.h.HandToHandEffect	-2593946570299642419	reached
 mage.cards.h.HankyuCost	4988866909044254738	reached
 mage.cards.h.HankyuValue	0	reached
 mage.cards.h.HanweirTheWrithingTownship	-2128269639738945450	reached
+mage.cards.h.HapatraTheDesertFangValue	0	reached
 mage.cards.h.HappilyEverAfterCardTypeHint	0	reached
 mage.cards.h.HappilyEverAfterColorHint	0	reached
 mage.cards.h.HappilyEverAfterLifeHint	0	reached
@@ -2152,6 +2153,7 @@ mage.cards.k.KinbindingWatcher	2935125057538607552	reached
 mage.cards.k.KindleCardsInAllGraveyardsCount	2595930970362455259	reached
 mage.cards.k.KineticOozeTargetAdjuster	0	reached
 mage.cards.k.KinscaerSentryPredicate	0	reached
+mage.cards.k.KioraOfSaltAndSandWatcher	1	reached
 mage.cards.k.KioraPreventionEffect	1576406186827933160	reached
 mage.cards.k.KitesailSkirmisherPredicate	0	reached
 mage.cards.k.KithkinArmorCost	2777583221897627246	reached
@@ -4270,6 +4272,7 @@ mage.watchers.common.ManaPaidSourceWatcher	5775981693950241423	reached
 mage.watchers.common.ManaPaidSourceWatcher$ManaPaidTracker	2220034879726028553	reached
 mage.watchers.common.ManaSpentToCastWatcher	3133193198499078512	reached
 mage.watchers.common.MiracleWatcher	-7486581727996748955	reached
+mage.watchers.common.NoncombatDamageToPlayersWatcher	1	reached
 mage.watchers.common.NumberOfTimesPermanentTargetedATurnWatcher	3403734679058959779	reached
 mage.watchers.common.OnceEachTurnCastHint	0	reached
 mage.watchers.common.OnceEachTurnCastWatcher	5374457556523170848	reached

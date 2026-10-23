@@ -4,6 +4,7 @@ import mage.abilities.Ability;
 import mage.abilities.SpellAbility;
 import mage.abilities.StaticAbility;
 import mage.abilities.costs.*;
+import mage.abilities.costs.OptionalCostPrompt;
 import mage.abilities.costs.mana.ManaCostsImpl;
 import mage.constants.Outcome;
 import mage.constants.Zone;
@@ -85,7 +86,7 @@ public class EntwineAbility extends StaticAbility implements OptionalAdditionalM
         }
 
         // AI can use it
-        if (entwineCost.canPay(ability, this, ability.getControllerId(), game)
+        if (OptionalCostPrompt.canPay(entwineCost, ability, this, ability.getControllerId(), game)
                 && player.chooseUse(Outcome.Benefit, "Pay " + entwineCost.getText(false) + " ?", ability, game)) {
             for (Iterator it = ((Costs) entwineCost).iterator(); it.hasNext(); ) {
                 Cost cost = (Cost) it.next();

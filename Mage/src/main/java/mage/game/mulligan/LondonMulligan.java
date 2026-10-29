@@ -7,12 +7,24 @@ import mage.game.Game;
 import mage.players.Player;
 import mage.target.Target;
 import mage.target.common.TargetCardInHand;
+import org.apache.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
 public class LondonMulligan extends Mulligan {
+
+    /**
+     * Pinned to the UID this class computed before the 2026-10-27 logging change.
+     * Adding a static initializer (the Logger below) changes the JVM-computed
+     * default UID, which would orphan every saved game that carries this mulligan
+     * implementation. The SERIALIZED shape (instance fields) is unchanged, so the
+     * historical value stays correct — pin it instead of letting the shape drift.
+     */
+    private static final long serialVersionUID = 1322864360735411516L;
+
+    private static final Logger logger = Logger.getLogger(LondonMulligan.class);
 
     private final Map<UUID, Integer> startingHandSizes = new HashMap<>();
     private final Map<UUID, Integer> openingHandSizes = new HashMap<>();
@@ -111,7 +123,26 @@ public class LondonMulligan extends Mulligan {
 
         while (player.canRespond() && player.getHand().size() > newHandSize) {
             Target target = new TargetCardInHand(new FilterCard("card (" + (player.getHand().size() - newHandSize) + " more) to put on the bottom of your library"));
-            player.chooseTarget(Outcome.Discard, target, null, game);
+            // A card on the bottom is mandatory here (rule 103.4) and the seat has to name
+            // it. A false return is the contract's documented "stop choosing"
+            // (Player.chooseTarget) — the seat did not choose, so:
+            //   * never pick a card for it (AGENTS.md: no graceful fallbacks that hide a
+            //     failure — inventing a card would also silently fix an illegal hand), and
+            //   * never re-ask it with the same oversized hand: a seat that answers the
+            //     same way every time spins this loop forever instead of shrinking the
+            //     hand (audit D3 — the loop previously relied on the concede flipping
+            //     canRespond()).
+            // Stop the bottom step and leave a diagnosable record instead of spinning.
+            if (!player.chooseTarget(Outcome.Discard, target, null, game)
+                    || target.getTargets().isEmpty()) {
+                String failure = player.getLogName() + " did not choose a card to put on the"
+                        + " bottom of their library (London mulligan) — stopping the bottom"
+                        + " step with a hand of " + player.getHand().size()
+                        + " instead of " + newHandSize;
+                logger.warn(failure);
+                game.informPlayers(failure);
+                break;
+            }
             player.putCardsOnBottomOfLibrary(new CardsImpl(target.getTargets()), game, null, true);
         }
     }

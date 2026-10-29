@@ -37,6 +37,10 @@ public class LLMPlayerConfig implements Serializable {
     // at setup time and the tag rides to the prompt payload). Not a secret.
     private String clientKeyTag = null;
     private String reasoningEffort = null;  // null = use default; "low"/"medium"/"high"/"max"
+    // Provider API dialect (frontier Phase 2): "chat-completions" (default),
+    // "openai-responses" or "anthropic-messages". null = server default. NOT
+    // transient — this crosses client→server on the remoting RPC.
+    private String apiDialect = null;
     // Reasoning-effort descent ladder for empty-answer retries. Null/empty = use
     // server default (LLMConfig: max,high,medium,low). Order matters, highest first.
     private java.util.List<String> reasoningEffortLevels = null;
@@ -127,6 +131,7 @@ public class LLMPlayerConfig implements Serializable {
         c.model = "deepseek-v4-flash:cloud";
         c.apiEndpoint = "http://localhost:11434/v1/chat/completions";
         c.reasoningEffort = "max";
+        c.apiDialect = "chat-completions";
         c.thinkingEnabled = true;
         c.temperature = 0.7;
         c.temperatureEnabled = false; // default: use model's temperature, don't override
@@ -170,6 +175,9 @@ public class LLMPlayerConfig implements Serializable {
 
     public String getReasoningEffort() { return reasoningEffort; }
     public void setReasoningEffort(String v) { this.reasoningEffort = v; }
+
+    public String getApiDialect() { return apiDialect; }
+    public void setApiDialect(String v) { this.apiDialect = v; }
 
     public java.util.List<String> getReasoningEffortLevels() { return reasoningEffortLevels; }
     public void setReasoningEffortLevels(java.util.List<String> v) { this.reasoningEffortLevels = v; }

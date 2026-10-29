@@ -31,7 +31,7 @@ import java.util.UUID;
  * error/auto-restore handling: the failure escaped `GameImpl.start` to
  * `GameWorker`, and `GameController.endGameWithError` closed the game with
  * `endWithTechnicalWinner` — a winner picked by life/time/<b>random</b> with NO
- * `endReason` (measured live 2026-10-21, wave-1021-actionable anomaly A4). The
+ * `endReason` (measured live 2026-10-21). The
  * winner's dialog was a plain "Victory!".
  *
  * <p>Target selection has no legal "pass", so a terminal provider failure

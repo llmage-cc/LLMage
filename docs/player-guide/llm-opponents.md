@@ -75,6 +75,7 @@ Each seat can run a different model, endpoint, and key. Server defaults come fro
 | Model | Model identifier. The refresh button next to the field asks the endpoint for its model list. Empty keeps the server default. |
 | Provider | Endpoint URL, chosen from the server's allowed providers or typed as a custom URL. Empty keeps the server default. |
 | API Key | Key for this seat. In the web client a typed key stays in your browser and is never stored on the server. Empty uses the server's key for the default endpoint. |
+| API Dialect | The wire protocol the seat speaks to the provider: default, chat-completions, openai-responses, or anthropic-messages. `default` keeps the server's dialect (the desktop dialog calls this "(server default)"). |
 | Reasoning Effort | Thinking level for this seat: default, low, medium, high, or max. `default` keeps the server's level. |
 | Thinking Enabled | Sends thinking parameters with each request. Turn it off for a provider that rejects them. |
 | Temperature | Off means the request omits the field and the provider applies its own default. |
@@ -91,7 +92,7 @@ Thinking models spend part of their output budget on reasoning. The operator set
 
 | Control | Effect |
 |---|---|
-| Thinking dialect | How the request asks for reasoning: a reasoning-effort level, or an explicit token budget. A provider that speaks one dialect and receives the other rejects the request. |
+| Thinking dialect | How the request asks for reasoning within the seat's API dialect: a reasoning-effort level, or an explicit token budget. A provider that speaks one and receives the other rejects the request. Not to be confused with the API dialect on the Core tab, which picks the provider's HTTP API shape. |
 | Reasoning effort | Named level the model is asked to use. Lower levels answer faster and reason less. |
 | Reasoning cap | Hard ceiling on reasoning tokens, so a reasoning loop cannot consume the whole reply. |
 | Terse stop | Cuts the reply at the first line break on prompts that demand a strict answer, so trailing commentary never reaches the parser. |
@@ -127,6 +128,8 @@ When a deck has a sideboard and the match has another game, the seat reviews the
 A failed call is retried up to five times. Rate limits and server errors are retried with growing delays, and a provider's own retry hint wins over the built-in delay. Network drops and empty answers are retried as well. Other client errors, such as a wrong key or an unknown model, fail immediately; repeating a deterministic refusal only wastes time.
 
 An empty answer usually means the model spent its whole budget thinking. The retries handle it in stages: a nudge asking for the bare answer, then a lower reasoning level on each attempt, and on the last attempt thinking is switched off so the answer gets the full output budget. A model that still returns nothing is treated as broken rather than silently passing priority.
+
+A strict yes/no prompt that keeps getting prose is its own failure mode: the seat is nudged twice to answer with exactly `yes` or `no`, and a third prose reply forfeits the seat. The game records `llm_format_forfeit`, a two-seat game ends with the opponent as the ordinary winner, and in a multiplayer game the remaining seats play on. A failure while assembling a pre-game prompt, before the provider is ever called, is likewise that seat's `llm_failure` forfeit — never a technical win awarded to someone else.
 
 If the provider cannot be reached at all, the seat concedes with a recorded reason. The game log shows `LLM provider failure` on the losing seat's line, the game ends normally, and in a two-seat game the winner's dialog reads **Victory (by forfeit)**.
 

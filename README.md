@@ -3,7 +3,8 @@
 LLMage ([llmage.cc](https://llmage.cc)) is a fork of [XMage](https://github.com/magefree/mage),
 the Java Magic: The Gathering rules engine. Its AI seats are played by large language models:
 instead of scripted heuristics, the bot reads the game state and decides what to do through any
-OpenAI-compatible chat-completions endpoint.
+OpenAI-compatible endpoint — chat-completions by default, with the OpenAI Responses and Anthropic
+Messages wire dialects available per seat.
 
 The rules engine, card database, and network protocol are XMage's. LLMage adds the LLM player,
 a browser client, and the glue that lets both share a table. The standard XMage desktop client
@@ -17,7 +18,8 @@ is included and works with the same server.
   prompts go to the model. Deterministic code still handles rules enforcement and low-level
   mechanics such as mana payment.
 - **Any OpenAI-compatible endpoint.** Run a local Ollama model, use Ollama Cloud, or point at a
-  hosted API. The two LLM seats can use different models and endpoints.
+  hosted API. Three wire dialects are supported per seat: chat-completions (the default), OpenAI
+  Responses, and Anthropic Messages. The two LLM seats can use different models and endpoints.
 - **Per-seat control.** Model, reasoning effort or thinking budget, personality, context
   window, and chat behaviour are configurable per seat.
 - **Browser and desktop.** The React web client covers the lobby, deck editor, full gameplay,
@@ -127,7 +129,8 @@ in [What changed from upstream XMage](docs/developer-guide/fork-changes.md).
 overrides the decision methods that matter: priority, mulligan, sideboard, card and player
 targets, choices, piles, modes, trigger order, replacement effects, amounts, X values,
 attackers and blockers, and which side of a modal card to cast. `LLMClient` talks to
-OpenAI-compatible endpoints, `LLMGameSerializer` renders the game state and decklists into
+OpenAI-compatible endpoints in three wire dialects (chat-completions, OpenAI Responses, and
+Anthropic Messages), `LLMGameSerializer` renders the game state and decklists into
 prompts, `LLMConfig` holds the model, endpoint, thinking, memory, summarization, concession,
 and personality settings, and `LLMResponse` carries the thinking and answer text.
 

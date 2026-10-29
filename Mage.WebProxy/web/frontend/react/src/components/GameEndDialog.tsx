@@ -3,6 +3,7 @@ import { useGameStore } from '@/store/gameStore'
 import { formatDurationWindow } from '@/utils/replayRows'
 import { buildGameLogText, gameLogFileName } from '@/utils/gameLog'
 import {
+  END_DIALOG_TECHNICAL_ERROR_NOTE,
   END_DIALOG_TECHNICAL_NOTE,
   END_DIALOG_TITLES,
   endDialogKind,
@@ -25,6 +26,12 @@ import {
  * ordinary win). Only when the field is absent (a stock/older server, or a
  * watcher's null) does it fall back to the two-seat fatal-log-line inference —
  * see utils/endGame.ts for the full precedence.
+ *
+ * A win the ENGINE awarded on a critical server/game error ("technical_error",
+ * GameImpl.endWithTechnicalWinner) is a THIRD case:
+ * the title reads "Game ended on server error" and a note says the result was
+ * awarded automatically. It must never read "Victory!" — nothing was played out.
+ * The title is also painted neutral/warning rather than success-green.
  *
  * GLYPH SAFETY: the win/loss marker is a plain ASCII tag `[win]`/`[loss]`.
  * A trophy EMOJI has no guaranteed font on Linux hosts and rendered as the
@@ -62,9 +69,20 @@ export function GameEndDialog({ result }: { result: string }) {
     gameEnd?.endReason,
   )
   const isTechnical = kind === 'technical-victory'
-  const titleColor = hasWon
-    ? 'var(--accent-success, #4caf50)'
-    : 'var(--color-danger, #f44336)'
+  const isServerError = kind === 'technical-error'
+  // A server-error result was awarded by life/time/random, not played out:
+  // warning-coloured, not success-green.
+  const titleColor = isServerError
+    ? 'var(--color-warning, #ff9800)'
+    : hasWon
+      ? 'var(--accent-success, #4caf50)'
+      : 'var(--color-danger, #f44336)'
+  /** The one explanatory note this kind adds under the title (null = none). */
+  const endNote = isServerError
+    ? END_DIALOG_TECHNICAL_ERROR_NOTE
+    : isTechnical
+      ? END_DIALOG_TECHNICAL_NOTE
+      : null
 
   const handleClose = () => {
     useGameStore.setState({ gameEnd: null })
@@ -121,7 +139,7 @@ export function GameEndDialog({ result }: { result: string }) {
           {END_DIALOG_TITLES[kind]}
         </div>
 
-        {isTechnical && (
+        {endNote && (
           <div style={{
             margin: '0.5rem 0',
             padding: '0.4rem 0.6rem',
@@ -131,7 +149,7 @@ export function GameEndDialog({ result }: { result: string }) {
             fontSize: '0.85rem',
             color: 'var(--text-primary)',
           }}>
-            {END_DIALOG_TECHNICAL_NOTE}
+            {endNote}
           </div>
         )}
 

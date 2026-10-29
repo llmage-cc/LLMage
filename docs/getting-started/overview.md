@@ -11,7 +11,7 @@ before you install it, and which page to read next.
 
 ## XMage underneath
 
-XMage enforces the full Magic rules on more than 31,000 cards and supports duel, multiplayer
+XMage enforces the full Magic rules on more than 32,000 cards and supports duel, multiplayer
 free-for-all, Commander, Oathbreaker, Cube, Tiny Leaders, constructed formats, draft and sealed,
 and tournaments. LLMage inherits all of that, including the desktop client, the server, the deck
 editor, replays, and the rating system.
@@ -103,7 +103,7 @@ Both connect to the server on port 17171. Play against an LLM seat from either o
 |---|---|---|
 | JDK 21 | Building and running anything | The launch scripts pass JDK 21 module flags |
 | Maven 3.9 or newer | Building from source | The repository ships source only |
-| An OpenAI-compatible endpoint | LLM seats | Local Ollama, a hosted API, or any server that speaks the chat-completions API |
+| An OpenAI-compatible endpoint | LLM seats | Local Ollama, a hosted API, or any server that speaks the chat-completions API; the OpenAI Responses and Anthropic Messages dialects work too |
 | Node.js and npm | The web client only | Builds the React bundle |
 | Git | Getting the source | |
 

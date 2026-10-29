@@ -252,6 +252,11 @@ public class LLMPlayer extends ComputerPlayer {
         // the property. Model/endpoint/key above are read the same way.
         if (llmProp("reasoningeffort", isSecondLlm) != null)
             config.reasoningEffort(llmProp("reasoningeffort", isSecondLlm));
+        // Provider API dialect (frontier Phase 2). Read for BOTH xmage.llm.* and
+        // xmage.llm2.* prefixes via llmProp — the classic "works for LLM2 but not
+        // LLM1" trap. Unknown values throw inside LLMConfig.apiDialect (Fail Fast).
+        if (llmProp("api_dialect", isSecondLlm) != null)
+            config.apiDialect(llmProp("api_dialect", isSecondLlm));
         if (llmProp("verbose", isSecondLlm) != null)
             config.verboseLogging(Boolean.parseBoolean(llmProp("verbose", isSecondLlm)));
         if (llmProp("transcript_dir", isSecondLlm) != null)
@@ -376,24 +381,51 @@ public class LLMPlayer extends ComputerPlayer {
      * either accepts it (we proceed) or rejects it (we crash at startup with the
      * provider's error message, and the user fixes the config). A 2xx with an
      * empty answer is fine — we only care that the params were accepted.
+     *
+     * <p>The probe speaks the configured api_dialect: the body, endpoint and
+     * response parse all go through the seat's DialectCodec, so a valid
+     * anthropic-messages / openai-responses config passes instead of being sent
+     * as a chat-completions request (which would fail a perfectly good boot).</p>
      */
     private void probeThinkingSupport() {
         if (!config.isThinkingEnabled()) return;  // no thinking params to validate
         long t0 = System.currentTimeMillis();
+        String effortRung = "budget".equals(config.getThinkingDialect())
+                && config.getThinkingBudgetTokens() != null
+                && !config.getThinkingBudgetTokens().isEmpty()
+                ? String.valueOf(config.getThinkingBudgetTokens().get(0))
+                : config.getReasoningEffort();
         try {
             // Side-effect-free call: no transcript (initTranscript hasn't run yet),
             // no conversation state. buildRequestBody emits the full thinking
             // payload per config (dialect, effort/budget).
-            client.chatNoSideEffects("You are a startup connectivity probe. Reply with one word.", "pong");
-            logger.info("LLM thinking probe OK (" + config.getModel() + ", dialect="
-                    + config.getThinkingDialect() + ", effort=" + config.getReasoningEffort() + ")"
-                    + " in " + (System.currentTimeMillis() - t0) + "ms");
+            LLMResponse probe = client.chatNoSideEffects(
+                    "You are a startup connectivity probe. Reply with one word.", "pong").response;
+            if (probe == null) {
+                throw new IllegalStateException("dialect probe returned no response object");
+            }
+            // Reaching here means: request accepted, thinking params accepted,
+            // response shape parsed as the configured dialect, and usage (when
+            // reported) parsed — a malformed usage block throws in the codec.
+            logger.info("LLM dialect probe OK (" + config.getModel()
+                    + ", apiDialect=" + config.getApiDialect()
+                    + ", thinkingDialect=" + config.getThinkingDialect()
+                    + ", effort=" + config.getReasoningEffort()
+                    + ", rung=" + effortRung
+                    + ", finishReason=" + probe.finishReason
+                    + ", usage=" + (probe.usage != null ? probe.usage : "none reported")
+                    + (probe.thinkingSummarized ? ", thinking=summary" : "")
+                    + ") in " + (System.currentTimeMillis() - t0) + "ms");
         } catch (Throwable t) {
             throw new RuntimeException("LLM startup thinking probe FAILED for model '"
                     + config.getModel() + "' at " + config.getApiEndpoint()
-                    + " — the configured thinking params (dialect=" + config.getThinkingDialect()
-                    + ", effort=" + config.getReasoningEffort() + ") are rejected by this endpoint."
-                    + " Fix the thinking config, the endpoint, or the model before starting a game."
+                    + " (apiDialect=" + config.getApiDialect()
+                    + ", thinkingDialect=" + config.getThinkingDialect()
+                    + ", effort=" + config.getReasoningEffort()
+                    + ", rung=" + effortRung + ")"
+                    + " — the configured request shape is rejected by this endpoint, or its"
+                    + " response does not parse as the configured api_dialect."
+                    + " Fix the dialect/thinking config, the endpoint, or the model before starting a game."
                     + " Underlying error: " + t.getMessage(), t);
         }
     }
@@ -466,6 +498,8 @@ public class LLMPlayer extends ComputerPlayer {
         }
         if (overrides.getReasoningEffort() != null)
             config.reasoningEffort(overrides.getReasoningEffort());
+        if (overrides.getApiDialect() != null && !overrides.getApiDialect().isEmpty())
+            config.apiDialect(overrides.getApiDialect());
         if (overrides.getReasoningEffortLevels() != null && !overrides.getReasoningEffortLevels().isEmpty())
             config.reasoningEffortLevels(String.join(",", overrides.getReasoningEffortLevels()));
         if (overrides.isThinkingEnabled() != null)
@@ -753,11 +787,10 @@ public class LLMPlayer extends ComputerPlayer {
      * routine the dispatcher uses — so "what validates" and "what gets executed"
      * can never disagree (e.g. "action:12" resolves the same way in both).
      * <p>
-     * The call site DOES see the action list: {@code promptAndExecute} builds
-     * {@code currentActions} and computes the highest selectable number
-     * immediately before calling chatAndRecord, so the bound is passed in as a
-     * parameter. (The validator constant itself is a static predicate with no
-     * game context — that is why the range form is a per-call instance.)
+     * The call site passes the bound in as a count. The list-carrying form is
+     * {@link ActionMenu}: {@code promptAndExecute} builds it from the very list
+     * the prompt printed and uses the same instance for the dispatch lookup, so
+     * the range can never be computed from one list and checked against another.
      */
     public static final class RangedActionNumberValidator implements java.util.function.Predicate<String> {
      /** Number of real (non-skip) actions offered, 1..n. */
@@ -765,25 +798,229 @@ public class LLMPlayer extends ComputerPlayer {
      /** Highest selectable number: n + 4 skip options, +1 more for CONCEDE. */
      public final int maxIndex;
 
+        /** The menu this validator was built from — the list the dispatcher must use. */
+        private final ActionMenu menu;
+
         public RangedActionNumberValidator(int actionCount, boolean concedeEnabled) {
+            this.menu = ActionMenu.forCount(actionCount, concedeEnabled);
             this.actionCount = actionCount;
-            this.maxIndex = actionCount + (concedeEnabled ? 5 : 4);
+            this.maxIndex = menu.maxNumber();
         }
 
         @Override
         public boolean test(String answer) {
-            if (!ACTION_NUMBER_VALIDATOR.test(answer)) {
-                return false;  // wrong format — the format path handles it
-            }
-            int n = parseFirstNumber(answer);
-            return n >= 0 && n <= maxIndex;
+            return menu.test(answer);
+        }
+
+        /** The menu whose numbering this validator enforces. */
+        public ActionMenu menu() {
+            return menu;
         }
     }
 
-    /** Build the range-checked action validator for the current action list. */
+    /**
+     * One priority decision's action menu: the exact list the model was shown, the numbering
+     * derived from that list, the validator over that numbering, and the dispatch
+     * lookup — all from a single object.
+     * <p>
+     * This type exists because validation and dispatch used to read DIFFERENT data for the
+     * same decision. The ranged validator checked the
+     * answer's FIRST LINE, while the dispatcher called {@link #parseFirstNumber},
+     * which scanned the WHOLE answer for an "action:" prefix. An answer like
+     * {@code "2\n… the best line is action:10"} validated as 2 and dispatched as
+     * 10 — "LLM returned invalid action index 10 (valid range: 0-2)",
+     * FATAL, turn rolled back. {@link #parseFirstNumber} now reads the first line
+     * only, and this class makes the list, the range and the dispatched number
+     * inseparable: {@link #numberFor}, {@link #isSelectable} and
+     * {@link #actionAt} are the only readers, and they all read this instance.
+     */
+    public static final class ActionMenu implements java.util.function.Predicate<String> {
+
+        /** The exact list handed to the model; null for a count-only menu. */
+        private final List<ActionEntry> offered;
+        /** Action count for a count-only menu (offered == null). */
+        private final int countedActions;
+        private final boolean concedeEnabled;
+
+        /** Menu built from the very list the prompt prints. */
+        public ActionMenu(List<ActionEntry> offered, boolean concedeEnabled) {
+            this.offered = offered;
+            this.countedActions = offered == null ? 0 : offered.size();
+            this.concedeEnabled = concedeEnabled;
+        }
+
+        private ActionMenu(int actionCount, boolean concedeEnabled) {
+            this.offered = null;
+            this.countedActions = actionCount;
+            this.concedeEnabled = concedeEnabled;
+        }
+
+        /** Count-only menu (no live list) for callers and tests that own the numbering. */
+        public static ActionMenu forCount(int actionCount, boolean concedeEnabled) {
+            return new ActionMenu(actionCount, concedeEnabled);
+        }
+
+        /** Number of real (non-skip) actions offered, 1..n — read from the list itself. */
+        public int actionCount() {
+            return offered != null ? offered.size() : countedActions;
+        }
+
+        /** Highest selectable number: n + 4 skip options, +1 more for CONCEDE. */
+        public int maxNumber() {
+            return actionCount() + (concedeEnabled ? 5 : 4);
+        }
+
+        /** True when {@code n} is one of the numbers the prompt printed. */
+        public boolean isSelectable(int n) {
+            return n >= 0 && n <= maxNumber();
+        }
+
+        /** True when the CONCEDE number (n+5) is part of this menu. */
+        public boolean isConcedeNumber(int n) {
+            return concedeEnabled && n == actionCount() + 5;
+        }
+
+        /** The real action behind 1..n; null for 0, skip, concede and out-of-range numbers. */
+        public ActionEntry actionAt(int n) {
+            if (offered == null || n < 1 || n > offered.size()) return null;
+            return offered.get(n - 1);
+        }
+
+        /** Description the prompt printed for number {@code n}; null when absent. */
+        public String descriptionAt(int n) {
+            ActionEntry entry = actionAt(n);
+            return entry == null ? null : entry.description;
+        }
+
+        /** The one number extraction used by validation AND dispatch. */
+        public int numberFor(String answer) {
+            return parseFirstNumber(answer);
+        }
+
+        @Override
+        public boolean test(String answer) {
+            if (!ACTION_NUMBER_VALIDATOR.test(firstLineOf(answer))) {
+                return false;   // wrong format — the format path handles it
+            }
+            return isSelectable(numberFor(answer));
+        }
+
+        /** Correction-prompt hint naming the numbering this menu printed. */
+        public String formatHint() {
+            int n = actionCount();
+            int max = maxNumber();
+            return "a single number between 0 and " + max
+                    + " (0 = pass priority, 1-" + n + " = the listed actions, "
+                    + (n + 1) + "-" + max + " = the SKIP" + (concedeEnabled ? "/CONCEDE" : "") + " options)";
+        }
+
+        /**
+         * Test hook: the internal list REFERENCE, so a test can prove the menu
+         * derives its numbering from the same object the prompt was built from
+         * (and not from a copy or a stale count).
+         */
+        public Object offeredListReferenceForTest() {
+            return offered;
+        }
+    }
+
+    /** Build the range-checked action validator for a count-only menu. */
     public static RangedActionNumberValidator actionNumberInRange(int actionCount, boolean concedeEnabled) {
         return new RangedActionNumberValidator(actionCount, concedeEnabled);
     }
+
+    /**
+     * Range check for a single-number answer against a 1..N option list — the
+     * cast-side, trigger-order and replacement-effect prompts.
+     * <p>
+     * Those prompts used {@link #SIMPLE_NUMBER_VALIDATOR}, which checks only the
+     * SHAPE of the answer ({@code -?\d+}). "17" with 2 sides offered therefore
+     * passed validation, skipped the correction round-trip, and threw at the
+     * dispatcher — "LLM cast side: invalid index 17 (valid: 1-2)", a FATAL
+     * that rolled the turn back and burned one of the game's 15 priority-error
+     * budget. Trigger order had the same shape with "0".
+     * <p>
+     * The number is extracted with {@link #parseFirstNumber} — the routine the dispatcher
+     * uses — so the validated number and the dispatched number cannot differ.
+     */
+    public static final class RangedNumberValidator implements java.util.function.Predicate<String> {
+
+        /** Lowest selectable number. */
+        public final int min;
+        /** Highest selectable number. */
+        public final int max;
+
+        public RangedNumberValidator(int min, int max) {
+            if (min > max) {
+                throw new IllegalArgumentException("empty range: " + min + ".." + max);
+            }
+            this.min = min;
+            this.max = max;
+        }
+
+        @Override
+        public boolean test(String answer) {
+            String line = firstLineOf(answer);
+            if (!SIMPLE_NUMBER_VALIDATOR.test(line)) {
+                return false;   // wrong format — the format path handles it
+            }
+            int n = parseFirstNumber(line);
+            return n >= min && n <= max;
+        }
+
+        /** Correction-prompt hint naming the range the model must answer in. */
+        public String formatHint() {
+            return "a single number between " + min + " and " + max;
+        }
+    }
+
+    /** Build a range-checked single-number validator for a 1..N (or min..max) option list. */
+    public static RangedNumberValidator numberInRange(int min, int max) {
+        return new RangedNumberValidator(min, max);
+    }
+
+    /**
+     * Resolve a numbered pick against an offered list of {@code count} entries.
+     * Returns the 1-based number when it is selectable (1..count), else 0.
+     * <p>
+     * Never throws: the caller takes its documented legal fallback on 0 (first
+     * listed side, first listed trigger, effect 0, the minimum amount). Fail
+     * Fast stays where it belongs — in the engine — not on a model that answered
+     * a well-formed number the prompt did not offer.
+     */
+    public static int pickNumbered(String answer, int count) {
+        int n = parseFirstNumber(answer);
+        return n >= 1 && n <= count ? n : 0;
+    }
+
+    /**
+     * Pick a numbered option from {@code answer}, falling back to the FIRST
+     * offered option when the model answered a number the prompt did not offer
+     * (or gave nothing usable). Never throws for a model answer: this is the
+     * documented legal fallback every numeric prompt takes after its one
+     * correction round-trip.
+     */
+    public static <T> T pickOrFirst(List<T> options, String answer) {
+        if (options == null || options.isEmpty()) {
+            throw new IllegalArgumentException("pickOrFirst needs at least one offered option");
+        }
+        int n = pickNumbered(answer, options.size());
+        return options.get(n >= 1 ? n - 1 : 0);
+    }
+
+    /**
+     * Test hook: an {@link ActionMenu} over descriptions only ({@link ActionEntry}
+     * is private to this class). Lets a test drive the numbering, the validator
+     * and the list identity without a game.
+     */
+    public static ActionMenu actionMenuForTest(List<String> descriptions, boolean concedeEnabled) {
+        List<ActionEntry> entries = new ArrayList<>();
+        for (String d : descriptions) {
+            entries.add(new ActionEntry(ActionType.PASS, d, null, null, false));
+        }
+        return new ActionMenu(entries, concedeEnabled);
+    }
+
 
     /** Expects a single integer (e.g. "3" or "1"), no other text. */
     private static final java.util.function.Predicate<String> SIMPLE_NUMBER_VALIDATOR = answer -> {
@@ -797,6 +1034,26 @@ public class LLMPlayer extends ComputerPlayer {
         String lower = answer.trim().toLowerCase();
         return lower.equals("yes") || lower.equals("no");
     };
+
+    /**
+     * Format-correction rounds every prompt gets. One was the unconditional
+     * behaviour since the correction path was added; a strict yes/no question
+     * asks for more ({@link #YES_NO_FORMAT_NUDGES}).
+     */
+    private static final int DEFAULT_FORMAT_CORRECTIONS = 1;
+
+    /**
+     * Explicit "reply with exactly yes or no" corrections a strict yes/no question
+     * gets before its seat forfeits.
+     * <p>
+     * The live failure this bounds: the 2026-10-25 tournament final asked a one-word
+     * Dredge question, the model answered prose, the single generic correction was
+     * exhausted, the parser threw and {@code endWithTechnicalWinner} awarded the
+     * championship-deciding game by life total. Two explicit corrections, then a real
+     * forfeit, removes the scoreboard consequence without weakening Fail Fast anywhere
+     * else.
+     */
+    private static final int YES_NO_FORMAT_NUDGES = 2;
 
     /** Expects "keep" or "mulligan" (case-insensitive), no other text. */
     private static final java.util.function.Predicate<String> KEEP_MULLIGAN_VALIDATOR = answer -> {
@@ -847,6 +1104,12 @@ public class LLMPlayer extends ComputerPlayer {
                     + " (0 = pass priority, 1-" + ranged.actionCount + " = the listed actions, "
                     + (ranged.actionCount + 1) + "-" + ranged.maxIndex + " = the SKIP/CONCEDE options)";
         }
+        if (validator instanceof ActionMenu) {
+            return ((ActionMenu) validator).formatHint();
+        }
+        if (validator instanceof RangedNumberValidator) {
+            return ((RangedNumberValidator) validator).formatHint();
+        }
         if (validator == ACTION_NUMBER_VALIDATOR) return "a single number (e.g. \"3\" or \"0\")";
         if (validator == SIMPLE_NUMBER_VALIDATOR) return "a single number (e.g. \"3\" or \"1\")";
         if (validator == COMMA_NUMBERS_VALIDATOR) return "comma-separated numbers (e.g. \"1,4\" or \"3\")";
@@ -858,6 +1121,39 @@ public class LLMPlayer extends ComputerPlayer {
         if (validator == ATTACKERS_VALIDATOR) return "\"all\", \"none\", or attack entries like \"1->player\"";
         if (validator == BLOCKERS_VALIDATOR) return "\"none\" or block entries like \"1->2\"";
         return "the expected format";
+    }
+
+    /**
+     * Correction prompt for an answer that failed its format validator.
+     * <p>
+     * The generic text is byte-identical to what every prompt has always received. A
+     * strict yes/no question gets an explicit "reply with exactly yes or no" instead:
+     * prose on a one-word prompt used to exhaust the single
+     * generic correction, throw, and let the engine award the OPPONENT a technical win
+     * by life total.
+     *
+     * @param previousAnswer the already-stripped answer being corrected
+     * @param correction     1-based index of this correction round
+     * @param maxCorrections how many rounds the caller allows
+     */
+    private static String formatCorrectionPrompt(java.util.function.Predicate<String> validator,
+                                                 String previousAnswer, int correction, int maxCorrections) {
+        String quoted = previousAnswer == null ? "" : previousAnswer;
+        if (validator == YES_NO_VALIDATOR) {
+            return "Your previous answer was: \"" + quoted + "\"\n"
+                    + "That answer is not in the required format. This is a strict yes/no question: "
+                    + "reply with exactly the single word \"yes\" or exactly the single word \"no\" — "
+                    + "nothing else (no reasoning, no explanation, no punctuation, no preamble, "
+                    + "no \"Decision:\" prefix)."
+                    + (maxCorrections > 1
+                            ? "\nThis is correction " + correction + " of " + maxCorrections + "."
+                            : "");
+        }
+        String formatHint = formatHintFor(validator);
+        return "Your previous answer was: \"" + quoted + "\"\n"
+                + "That answer is not in the correct format. The expected format is: " + formatHint + ".\n"
+                + "Reply with ONLY the answer in that format — no reasoning, no explanation, "
+                + "no preamble, no \"Decision:\" prefix. Just the answer itself.";
     }
 
     /**
@@ -1193,6 +1489,21 @@ public class LLMPlayer extends ComputerPlayer {
                                        String promptType,
                                        java.util.function.Predicate<String> validator,
                                        boolean combatDeclaration) {
+        return chatAndRecord(game, prompt, compactSummary, promptType, validator, combatDeclaration,
+                DEFAULT_FORMAT_CORRECTIONS);
+    }
+
+    /**
+     * @param maxFormatCorrections how many correction round-trips a failed format
+     *                             validation gets. Every prompt passes
+     *                             {@link #DEFAULT_FORMAT_CORRECTIONS} (the historical
+     *                             single correction); a strict yes/no question passes
+     *                             {@link #YES_NO_FORMAT_NUDGES}.
+     */
+    private LLMResponse chatAndRecord(Game game, String prompt, String compactSummary,
+                                       String promptType,
+                                       java.util.function.Predicate<String> validator,
+                                       boolean combatDeclaration, int maxFormatCorrections) {
         // Only record for replay on the real game (not AI simulations)
         int stateIdx = -1;
         if (!game.isSimulation()) {
@@ -1217,7 +1528,17 @@ public class LLMPlayer extends ComputerPlayer {
             // the prompt just asked for.
             markNextCallTerse();
         }
-        resp = chatAndRecordWithRetry(prompt, compactSummary, promptType, turn, phaseStep);
+        try {
+            resp = chatAndRecordWithRetry(prompt, compactSummary, promptType, turn, phaseStep);
+        } finally {
+            // The terse flag is one-shot and normally consumed by the ladder's first
+            // provider call. This guard scopes it to THIS decision: any path that
+            // returns without reaching the ladder would otherwise leave the flag set
+            // for the NEXT decision, whose answer would then be cut at the first
+            // newline (found 2026-10-27 by a test harness that overrides the ladder
+            // and leaked the flag into the next test class on the same thread).
+            nextCallTerse.remove();
+        }
 
         // Strip "Decision:" prefixes centrally so no validator ever sees them.
         // This prevents feedback loops where the correction prompt quotes a
@@ -1250,50 +1571,75 @@ public class LLMPlayer extends ComputerPlayer {
         // First-line fallback: every downstream parser reads only the first
         // line, so an answer like "5\nReasoning: ..." is accepted without a
         // correction call when its first line is well-formed.
-
-        if (validator != null && !passesValidation(validator, resp.answer)) {
-            logger.warn("LLM answer failed format validation, re-requesting clean answer. Original: '"
-                    + (resp.answer.length() > 100 ? resp.answer.substring(0, 100) + "..." : resp.answer) + "'");
-            String formatHint = formatHintFor(validator);
-            // Quote the already-stripped answer so the model doesn't see/copy a prefix
-            String correctionPrompt = "Your previous answer was: \"" + resp.answer + "\"\n"
-                    + "That answer is not in the correct format. The expected format is: " + formatHint + ".\n"
-                    + "Reply with ONLY the answer in that format — no reasoning, no explanation, "
-                    + "no preamble, no \"Decision:\" prefix. Just the answer itself.";
-            // Format failures are the same overthinking symptom the empty-answer
-            // ladder handles — descend one rung for the correction call so the
-            // model gets a smaller thinking budget and a stronger nudge to answer
-            // tersely. Attempt index 3 = one rung below configured effort.
-            String correctionEffort = effortForAttempt(3);
-            // Stored compact summary for the correction exchange: descriptive, not
-            // the placeholder "format correction" (the string goes into conversation
-            // history — future prompts AND the webui/transcripts read it).
-            String correctionSummary = "Retry of the " + promptType + " decision — previous answer "
-                    + "was not in the required format (" + formatHint + ").";
-            LLMResponse corrected = chatAndRecordWithRetryWithEffort(correctionPrompt, correctionSummary,
-                    promptType + "-corrected", turn, phaseStep, correctionEffort);
-            // Strip prefix from the corrected answer too
-            if (corrected.answer != null) {
-                String cleanedCorrected = stripDecisionPrefix(corrected.answer);
-                if (!cleanedCorrected.equals(corrected.answer)) {
-                    logger.debug("Stripped Decision: prefix from corrected answer: '" + corrected.answer + "' -> '" + cleanedCorrected + "'");
-                    corrected = new LLMResponse(corrected.thinking, cleanedCorrected, corrected.usage);
+        //
+        // Correction rounds are bounded per prompt class:
+        // every prompt keeps the single generic correction it always had
+        // (DEFAULT_FORMAT_CORRECTIONS); a strict yes/no question asks for
+        // YES_NO_FORMAT_NUDGES explicit "reply exactly yes or no" corrections and its
+        // caller forfeits the seat when even those fail (see chooseUse). When every
+        // round fails the ORIGINAL answer is returned, exactly as before, so a caller's
+        // failure message keeps quoting what the model first said.
+        LLMResponse candidate = resp;
+        if (validator != null && !passesValidation(validator, candidate.answer)) {
+            for (int correction = 1; correction <= maxFormatCorrections; correction++) {
+                logger.warn("LLM answer failed format validation, re-requesting clean answer (correction "
+                        + correction + "/" + maxFormatCorrections + "). Previous answer: '"
+                        + (candidate.answer != null && candidate.answer.length() > 100
+                                ? candidate.answer.substring(0, 100) + "..." : candidate.answer) + "'");
+                String formatHint = formatHintFor(validator);
+                // Quote the already-stripped answer so the model doesn't see/copy a prefix
+                String correctionPrompt = formatCorrectionPrompt(validator, candidate.answer,
+                        correction, maxFormatCorrections);
+                // Format failures are the same overthinking symptom the empty-answer
+                // ladder handles — descend one rung for the correction call so the
+                // model gets a smaller thinking budget and a stronger nudge to answer
+                // tersely. Attempt index 3 = one rung below configured effort.
+                String correctionEffort = effortForAttempt(3);
+                // Stored compact summary for the correction exchange: descriptive, not
+                // the placeholder "format correction" (the string goes into conversation
+                // history — future prompts AND the webui/transcripts read it).
+                String correctionSummary = "Retry of the " + promptType + " decision — previous answer "
+                        + "was not in the required format (" + formatHint + ").";
+                if (terseAnswerStop && !config.isAskReason()) {
+                    // A correction is itself a strict-format request: cut continuation
+                    // text at the first newline for it too, the same contract the first
+                    // call gets above.
+                    markNextCallTerse();
                 }
-            }
-            if (validator.test(corrected.answer) || validator.test(firstLineOf(corrected.answer))) {
-                // Record the corrected response too. Same descriptive summary as the
-                // conversation-history path (chatAndRecordWithRetryWithEffort stored it
-                // above); the replay record must not regress to the placeholder literal
-
-                if (stateIdx >= 0) {
-                    recordReplayExchange(game, stateIdx, promptType + "-corrected", correctionSummary,
-                            corrected.thinking, corrected.answer, modelShort, turn, phaseStep);
+                LLMResponse corrected;
+                try {
+                    corrected = chatAndRecordWithRetryWithEffort(correctionPrompt, correctionSummary,
+                            promptType + "-corrected", turn, phaseStep, correctionEffort);
+                } finally {
+                    // Same one-decision scope as the first call above: a correction
+                    // that never reaches the ladder must not leave the flag set.
+                    nextCallTerse.remove();
                 }
-                return corrected;
+                // Strip prefix from the corrected answer too
+                if (corrected.answer != null) {
+                    String cleanedCorrected = stripDecisionPrefix(corrected.answer);
+                    if (!cleanedCorrected.equals(corrected.answer)) {
+                        logger.debug("Stripped Decision: prefix from corrected answer: '" + corrected.answer + "' -> '" + cleanedCorrected + "'");
+                        corrected = new LLMResponse(corrected.thinking, cleanedCorrected, corrected.usage);
+                    }
+                }
+                if (validator.test(corrected.answer) || validator.test(firstLineOf(corrected.answer))) {
+                    // Record the corrected response too. Same descriptive summary as the
+                    // conversation-history path (chatAndRecordWithRetryWithEffort stored it
+                    // above); the replay record must not regress to the placeholder literal.
+                    if (stateIdx >= 0) {
+                        recordReplayExchange(game, stateIdx, promptType + "-corrected", correctionSummary,
+                                corrected.thinking, corrected.answer, modelShort, turn, phaseStep);
+                    }
+                    return corrected;
+                }
+                logger.error("LLM format correction " + correction + "/" + maxFormatCorrections
+                        + " also failed. Original: '" + resp.answer + "', corrected: '" + corrected.answer + "'");
+                candidate = corrected;
             }
-            // Correction also failed — return the original and let the caller
-            // handle the parse failure (which will throw per Fail Fast).
-            logger.error("LLM format correction also failed. Original: '" + resp.answer + "', corrected: '" + corrected.answer + "'");
+            // Every correction round failed. Return the ORIGINAL answer and let the
+            // caller handle the parse failure: a strict yes/no caller forfeits the seat
+            // there, every other caller throws per Fail Fast.
         }
 
         return resp;
@@ -2101,54 +2447,62 @@ public class LLMPlayer extends ComputerPlayer {
         // to show the game while the LLM thinks during the pre-game phase.
         ensureGamePlan(game);
 
-        // Build bootstrap context on the first call (includes deck & opponent info)
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("=== MULLIGAN DECISION ===\n");
-        prompt.append("You are playing a game of Magic: The Gathering.\n");
-        prompt.append("Format: London Mulligan (you always draw 7 cards after a mulligan,\n");
-        prompt.append(" but after you keep, you must put one card on the bottom of your\n");
-        prompt.append(" library for each mulligan you've taken — so keeping after 1\n");
-        prompt.append(" mulligan = 6 cards, 2 mulligans = 5 cards, etc.)\n\n");
-        // Decklist is in the system prompt — no need to repeat here.
-
-        // Show opponents
-        prompt.append("=== OPPONENTS ===\n");
-        for (Player p : game.getPlayers().values()) {
-            if (p.getId().equals(getId())) continue;
-            prompt.append("  ").append(p.getName());
-            if (p instanceof ComputerPlayer) {
-                prompt.append(" (AI opponent)");
-            } else if (p.isHuman()) {
-                prompt.append(" (Human opponent)");
-            }
-            prompt.append("\n");
-        }
-
-        // Show current hand
-        prompt.append("\nMulligan #").append(mulliganCount)
-              .append(" (hand size: ").append(hand.size()).append(")\n\n");
-        prompt.append("=== YOUR HAND ===\n");
-        for (Card card : hand.getCards(game)) {
-            // Mulligan counts as an encounter: the first sighting
-            // here emits full text (marked) and marks the name, so later
-            // priority prompts render shorthand.
-            prompt.append("  ").append(LLMGameSerializer.formatCardForChoiceOnce(game, getId(), card)).append("\n");
-        }
-
-        prompt.append("\nShould you KEEP this hand or MULLIGAN?\n");
-        prompt.append("Reply with ONLY 'keep' or 'mulligan'.");
-
-        if (config.isVerboseLogging())
-            logger.info("=== LLM MULLIGAN ===\n" + prompt + "\n=== END ===");
-
         LLMResponse resp;
+        boolean providerCallStarted = false;
         try {
+            // Build bootstrap context on the first call (includes deck & opponent info)
+            StringBuilder prompt = new StringBuilder();
+            prompt.append("=== MULLIGAN DECISION ===\n");
+            prompt.append("You are playing a game of Magic: The Gathering.\n");
+            prompt.append("Format: London Mulligan (you always draw 7 cards after a mulligan,\n");
+            prompt.append(" but after you keep, you must put one card on the bottom of your\n");
+            prompt.append(" library for each mulligan you've taken — so keeping after 1\n");
+            prompt.append(" mulligan = 6 cards, 2 mulligans = 5 cards, etc.)\n\n");
+            // Decklist is in the system prompt — no need to repeat here.
+
+            // Show opponents
+            prompt.append("=== OPPONENTS ===\n");
+            for (Player p : game.getPlayers().values()) {
+                if (p.getId().equals(getId())) continue;
+                prompt.append("  ").append(p.getName());
+                if (p instanceof ComputerPlayer) {
+                    prompt.append(" (AI opponent)");
+                } else if (p.isHuman()) {
+                    prompt.append(" (Human opponent)");
+                }
+                prompt.append("\n");
+            }
+
+            // Show current hand
+            prompt.append("\nMulligan #").append(mulliganCount)
+                  .append(" (hand size: ").append(hand.size()).append(")\n\n");
+            prompt.append("=== YOUR HAND ===\n");
+            for (Card card : hand.getCards(game)) {
+                // Mulligan counts as an encounter: the first sighting
+                // here emits full text (marked) and marks the name, so later
+                // priority prompts render shorthand.
+                prompt.append("  ").append(LLMGameSerializer.formatCardForChoiceOnce(game, getId(), card)).append("\n");
+            }
+
+            prompt.append("\nShould you KEEP this hand or MULLIGAN?\n");
+            prompt.append("Reply with ONLY 'keep' or 'mulligan'.");
+
+            if (config.isVerboseLogging())
+                logger.info("=== LLM MULLIGAN ===\n" + prompt + "\n=== END ===");
+
+            providerCallStarted = true;
             resp = chatAndRecord(game, prompt.toString(),
                     mulliganCount > 0
                         ? "Mulligan #" + mulliganCount + " (" + hand.size() + " cards)"
                         : "Opening hand (" + hand.size() + " cards)",
                     "mulligan", KEEP_MULLIGAN_VALIDATOR);
         } catch (RuntimeException e) {
+            // A prompt-assembly throw is not a provider failure the retry ladder
+            // could own — pre-game it forfeits, mid-game it still propagates.
+            if (!providerCallStarted) {
+                failPreGamePromptAssembly(game, e, "chooseMulligan prompt assembly");
+                return true;  // benign: hand stands, engine unwinds via concede
+            }
             if (thrownAfterFullLadder(e)) {
                 // chooseMulligan has no catch in Mulligan.executeMulliganPhase —
                 // a throw here escapes init and ghosts the game (mulligan chains
@@ -2293,18 +2647,62 @@ public class LLMPlayer extends ComputerPlayer {
      * {@link #concedeOnTerminalFailure} stamps {@link GameEndReason#LLM_FAILURE}
      * and drives the engine's own concede unwind, which ends the game with the
      * other seat as the winner.
-     * Transient failures still rethrow — the retry ladder owns those.
+     * <p>
+     * Two different pre-provider/terminal cases share this funnel, split by
+     * {@code providerCallStarted} (same discriminator as {@code chooseUse}):
+     * <ul>
+     *   <li><b>before</b> the request was sent — prompt assembly (serializer or
+     *       state access while building the prompt), which the retry ladder can
+     *       never own and which therefore is never
+     *       {@link #thrownAfterFullLadder}. It takes
+     *       {@link #failPreGamePromptAssembly} (pre-game forfeit, mid-game
+     *       rethrow); routing it through the ladder gate below would rethrow it
+     *       pre-game and end the game as a technical winner.</li>
+     *   <li><b>after</b> the request was sent — the ladder-gated forfeit stays:
+     *       only an exhausted ladder / non-retryable provider status forfeits,
+     *       so a local parse crash cannot masquerade as a provider failure.</li>
+     * </ul>
+     * Transient provider failures still rethrow — the retry ladder owns those.
      *
      * @return the engine's "not chosen" value, so its caller takes the
      *         no-choice branch instead of consuming a target that is not there
      */
-    private boolean failPreGameTargetChoice(Game game, Target target, RuntimeException cause) {
-        if (!isPreGameChoice(game) || !thrownAfterFullLadder(cause)) {
+    private boolean failPreGameTargetChoice(Game game, Target target, RuntimeException cause,
+                                            boolean providerCallStarted) {
+        if (!isPreGameChoice(game)) {
             throw cause;
         }
         String prompt = target != null ? target.getMessage(game) : "?";
+        if (!providerCallStarted) {
+            failPreGamePromptAssembly(game, cause, "pre-game target prompt assembly [" + prompt + "]");
+            return false;
+        }
+        if (!thrownAfterFullLadder(cause)) {
+            throw cause;
+        }
         concedeOnTerminalFailure(game, cause, "pre-game target choice [" + prompt + "]");
         return false;
+    }
+
+    /**
+     * Terminal-failure guard for a prompt-ASSEMBLY failure made BEFORE the
+     * priority loop.
+     * <p>
+     * Prompt assembly runs before the provider call, so the retry ladder owns
+     * nothing here — the request was never sent and a retry can only rebuild
+     * the same broken prompt. Pre-game (inside {@code GameImpl.init}) an
+     * escaping throw reaches {@code GameController.endGameWithError} →
+     * {@code endWithTechnicalWinner}, i.e. a winner by life/time/<b>random</b>:
+     * the same hole the provider-call guards close. The seat forfeits instead.
+     * <p>
+     * Mid-game the throw still propagates — play-on semantics
+     * leave those to {@code endWithTechnicalWinner}.
+     */
+    private void failPreGamePromptAssembly(Game game, RuntimeException cause, String what) {
+        if (!isPreGameChoice(game)) {
+            throw cause;
+        }
+        concedeOnTerminalFailure(game, cause, what);
     }
 
     // Custom skip tracking (replaces PlayerImpl skip flags which never auto-cancel)
@@ -2531,18 +2929,23 @@ public class LLMPlayer extends ComputerPlayer {
         }
 
         String compactSummary = LLMGameSerializer.buildSituationSummary(game, this.getId());
-        // Range-checked validator: the offered list is currentActions (n entries) plus
-        // the 4 SKIP options and optionally CONCEDE. An out-of-range answer now
-        // FAILS validation → chatAndRecord's correction path re-prompts with the
-        // valid range, instead of reaching the dispatcher's FATAL + turn rollback.
-        LLMResponse resp = chatAndRecord(game, userPrompt, compactSummary, "priority",
-                actionNumberInRange(currentActions.size(), config.isConcedeEnabled()));
+        // One menu owns the offered list, the numbering derived from it, the
+        // validator over that numbering and the dispatch lookup. Previously the
+        // validator was built from a COUNT while the dispatcher re-parsed the raw
+        // answer and re-read currentActions.size():
+        // "2\n… action:10" validated as 2 (first line) and dispatched as 10, a
+        // FATAL "invalid action index 10 (valid range: 0-2)" with the turn rolled
+        // back. An out-of-range answer now fails validation, takes the existing
+        // correction prompt, and — if the model repeats itself — falls back to
+        // passing priority instead of throwing.
+        ActionMenu menu = new ActionMenu(currentActions, config.isConcedeEnabled());
+        LLMResponse resp = chatAndRecord(game, userPrompt, compactSummary, "priority", menu);
 
         if (config.isVerboseLogging() && resp.thinking != null && !resp.thinking.isEmpty())
             logger.info("=== LLM THINKING ===\n" + resp.thinking + "\n=== END LLM THINKING ===");
         if (config.isVerboseLogging()) logger.info("LLM answer: '" + resp.answer + "'");
 
-        int actionIndex = parseActionNumber(resp.answer);
+        int actionIndex = menu.numberFor(resp.answer);
         List<UUID> manaPlan = parseManaPlan(resp.answer, landIdMap);
 
         // If the LLM answered with a non-numeric word (e.g., "yes" or "no")
@@ -2556,7 +2959,7 @@ public class LLMPlayer extends ComputerPlayer {
         // the LLM is clearly answering a binary question. With multiple actions
         // available, the LLM should be picking a number; interpreting "yes"/"no"
         // as action 1/0 would silently pick the wrong action.
-        if (actionIndex == -1 && resp.answer != null && currentActions.size() == 1) {
+        if (actionIndex == -1 && resp.answer != null && menu.actionCount() == 1) {
             String cleaned = resp.answer.trim().toLowerCase();
             // Strip any "Decision:" prefixes
             while (cleaned.startsWith("decision:")) {
@@ -2575,11 +2978,10 @@ public class LLMPlayer extends ComputerPlayer {
             }
         }
 
-        int skipTurnIdx = currentActions.size() + 1;
-        int skipEndStepIdx = currentActions.size() + 2;
-        int skipStackIdx = currentActions.size() + 3;
-        int cancelSkipIdx = currentActions.size() + 4;
-        int concedeIdx = currentActions.size() + 5;
+        int skipTurnIdx = menu.actionCount() + 1;
+        int skipEndStepIdx = menu.actionCount() + 2;
+        int skipStackIdx = menu.actionCount() + 3;
+        int cancelSkipIdx = menu.actionCount() + 4;
 
         if (actionIndex == skipTurnIdx) {
             addSelfLog(gameTurnStep(game) + ": Skip to next turn");
@@ -2601,7 +3003,7 @@ public class LLMPlayer extends ComputerPlayer {
             return executeAction(new ActionEntry(ActionType.CANCEL_SKIP,
                     "CANCEL ALL SKIPS", null, null, false), game);
         }
-        if (actionIndex == concedeIdx && config.isConcedeEnabled()) {
+        if (menu.isConcedeNumber(actionIndex)) {
             addSelfLog(gameTurnStep(game) + ": CONCEDE");
             if (config.isVerboseLogging())
                 logger.info("LLM chose to CONCEDE");
@@ -2618,12 +3020,30 @@ public class LLMPlayer extends ComputerPlayer {
             return true;
         }
 
-        if (actionIndex < 0 || actionIndex > currentActions.size()) {
-            throw new RuntimeException("LLM returned invalid action index " + actionIndex
-                    + " (valid range: 0-" + currentActions.size() + "). Answer: '" + resp.answer + "'");
+        if (!menu.isSelectable(actionIndex)) {
+            // Never throw for a well-formed number the prompt did not offer
+            // It has already been through chatAndRecord's
+            // correction prompt; if the model repeated it, take the one
+            // unconditionally-legal fallback and surface the stuck decision
+            // loudly (FATAL + self-log) — the same contract as the F4
+            // exhausted-retry path. Throwing here rolled the turn back and
+            // burned the game's 15-error priority budget.
+            return passPriorityOnUnrecoverable(game,
+                    "LLM returned invalid action index " + actionIndex + " for "
+                    + menu.actionCount() + " offered actions (selectable numbers: 0-"
+                    + menu.maxNumber() + "). Answer: '" + resp.answer
+                    + "'. Taking the legal fallback: pass priority.");
         }
 
-        ActionEntry chosen = currentActions.get(actionIndex - 1);
+        ActionEntry chosen = menu.actionAt(actionIndex);
+        if (chosen == null) {
+            // Unreachable while isSelectable() and actionAt() share this menu;
+            // kept as an explicit guard instead of an index-out-of-bounds throw.
+            return passPriorityOnUnrecoverable(game,
+                    "LLM action menu has no entry for number " + actionIndex
+                    + " (offered: " + menu.actionCount() + "). Answer: '" + resp.answer
+                    + "'. Taking the legal fallback: pass priority.");
+        }
         // Attach mana plan if the LLM specified one and this is a cast/activate action
         if (manaPlan != null && !manaPlan.isEmpty()
                 && (chosen.actionType == ActionType.CAST_SPELL || chosen.actionType == ActionType.ACTIVATE_ABILITY)) {
@@ -2933,33 +3353,55 @@ public class LLMPlayer extends ComputerPlayer {
 
     /**
      * Static core of {@link #parseActionNumber}: prefer an "action:N" prefix
-     * anywhere in the response, else extract the first number from the FIRST
-     * LINE only. Package-private so the static mode-choice helpers (and unit
+     * on the answer's FIRST LINE, else extract the first number from that line.
+     * Package-private so the static mode-choice helpers (and unit
      * tests) reuse the exact same extraction the action parsers use.
+     * <p>
+     * The "action:" scan used to run over the WHOLE
+     * answer while every validator checked the first line only. An answer whose
+     * first line was 2 but whose reasoning mentioned "…action:10…" therefore
+     * validated as 2 and dispatched as 10 — "LLM returned invalid action index 10
+     * (valid range: 0-2)", FATAL, turn rolled back. Validation and dispatch must
+     * read the same line, so both read {@link #firstLineOf} now.
      */
     public static int parseFirstNumber(String response) {
         if (response == null) return -1;
-        // Prefer "action:N" format if present
-        String lower = response.toLowerCase();
+        String firstLine = firstLineOf(response);
+        // Prefer "action:N" on the first line
+        String lower = firstLine.toLowerCase();
         int actionIdx = lower.indexOf("action:");
         if (actionIdx >= 0) {
-            String after = response.substring(actionIdx + 7).trim();
+            String after = firstLine.substring(actionIdx + 7).trim();
             // Take the first number after "action:"
             String[] words = after.replaceAll("[^0-9\\s]", " ").trim().split("\\s+");
             for (String w : words) {
-                if (w.matches("-?\\d+")) return Integer.parseInt(w);
+                if (w.matches("-?\\d+")) return safeParseNumber(w);
             }
         }
         // Fallback: extract first number from the FIRST LINE only.
         // Looking at the last number in the full response is wrong because
         // LLM reasoning text often contains numbers (e.g., "T16", "turn 3")
         // that get misinterpreted as the action index.
-        String firstLine = response.trim().split("\\n", 2)[0];
         String[] words = firstLine.replaceAll("[^0-9\\s]", " ").trim().split("\\s+");
         for (String w : words) {
-            if (w.matches("-?\\d+")) return Integer.parseInt(w);
+            if (w.matches("-?\\d+")) return safeParseNumber(w);
         }
         return -1;
+    }
+
+    /**
+     * Parse a digit string without throwing on overflow. A number too large for
+     * an int is a well-formed answer that is simply out of every range, so it
+     * saturates at {@link Integer#MAX_VALUE} and the range checks reject it —
+     * {@code Integer.parseInt} on 20 digits used to escape as a
+     * NumberFormatException, i.e. another FATAL from a numeric answer.
+     */
+    private static int safeParseNumber(String digits) {
+        try {
+            return Integer.parseInt(digits);
+        } catch (NumberFormatException overflow) {
+            return Integer.MAX_VALUE;
+        }
     }
 
     /**
@@ -3278,65 +3720,96 @@ public class LLMPlayer extends ComputerPlayer {
                              String trueText, String falseText, Ability source, Game game) {
         if (config == null || message == null) return super.chooseUse(outcome, message, secondMessage, trueText, falseText, source, game);
 
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("=== YES/NO DECISION ===\n");
-        prompt.append("Question: ").append(message).append("\n");
-        if (secondMessage != null && !secondMessage.isEmpty()) {
-            prompt.append("Hint: ").append(secondMessage).append("\n");
-        }
+        LLMResponse resp;
+        boolean providerCallStarted = false;
+        try {
+            StringBuilder prompt = new StringBuilder();
+            prompt.append("=== YES/NO DECISION ===\n");
+            prompt.append("Question: ").append(message).append("\n");
+            if (secondMessage != null && !secondMessage.isEmpty()) {
+                prompt.append("Hint: ").append(secondMessage).append("\n");
+            }
 
-        // Source card context
-        if (source != null) {
-            MageObject srcObj = game.getObject(source.getSourceId());
-            if (srcObj != null) {
-                prompt.append("Source: ").append(srcObj.getName()).append("\n");
-                String rule = source.getRule();
-                if (rule != null && !rule.isEmpty()) {
-                    prompt.append("Rules: ").append(rule).append("\n");
+            // Source card context
+            if (source != null) {
+                MageObject srcObj = game.getObject(source.getSourceId());
+                if (srcObj != null) {
+                    prompt.append("Source: ").append(srcObj.getName()).append("\n");
+                    String rule = source.getRule();
+                    if (rule != null && !rule.isEmpty()) {
+                        prompt.append("Rules: ").append(rule).append("\n");
+                    }
                 }
             }
+
+            // Compact game state
+            prompt.append("\n=== GAME STATE ===\n");
+            // Phase suppressed when identical to Step (see LLMGameSerializer.formatTurnPhaseStep).
+            prompt.append(LLMGameSerializer.formatTurnPhaseStep(game)).append("\n");
+            for (Player p : game.getPlayers().values()) {
+                prompt.append("  ").append(p.getName());
+                if (p.getId().equals(getId())) prompt.append(" (YOU)");
+                prompt.append(": Life ").append(p.getLife())
+                      .append(", Hand ").append(p.getHand().size()).append("\n");
+            }
+
+            // Floating mana — critical for Ward/payment decisions
+            prompt.append("\nFloating mana: ");
+            if (getManaPool().isEmpty()) {
+                prompt.append("None\n");
+            } else {
+                prompt.append(getManaPool().getMana().toString()).append("\n");
+            }
+
+            // Hand for context
+            prompt.append("\nYour hand:\n");
+            for (Card card : getHand().getCards(game)) {
+                prompt.append("  ").append(LLMGameSerializer.formatCardForChoiceOnce(game, getId(), card)).append("\n");
+            }
+
+            if (trueText != null && falseText != null) {
+                prompt.append("\nOptions:\n");
+                prompt.append("  YES: ").append(trueText).append("\n");
+                prompt.append("  NO: ").append(falseText).append("\n");
+            } else {
+                prompt.append("\nReply YES to accept, or NO to decline.\n");
+            }
+            prompt.append("\nReply with ONLY the word 'yes' or the word 'no' — nothing else.");
+
+            if (config.isVerboseLogging())
+                logger.info("=== LLM YES/NO ===\n" + prompt + "\n=== END ===");
+
+            providerCallStarted = true;
+            resp = chatAndRecord(game, prompt.toString(),
+                    "YN: " + message.substring(0, Math.min(message.length(), 80)),
+                    "yesno", YES_NO_VALIDATOR, false, YES_NO_FORMAT_NUDGES);
+        } catch (RuntimeException e) {
+            // A prompt-assembly throw is not a provider failure the retry ladder
+            // could own — pre-game it forfeits, mid-game it still propagates.
+            if (!providerCallStarted) {
+                failPreGamePromptAssembly(game, e, "pre-game yes/no prompt assembly");
+                return false;
+            }
+            // Pre-game companion question (GameImpl.init): outside the game's
+            // error/auto-restore handling, so a terminal provider failure would
+            // escape GameImpl.start → GameController.endGameWithError →
+            // endWithTechnicalWinner, which awards a winner by life/time/random
+            // (the same hole the pre-game TARGET funnels no longer have). A
+            // yes/no choice has no legal "pass", so the seat forfeits; false is
+            // the benign "declined" value — the game is already over by then.
+            //
+            // Everything else rethrows. In particular the parser's
+            // "LLM yes/no: unrecognized response" RuntimeException is thrown
+            // AFTER this call, outside this try — a parser crash, never a
+            // terminal provider failure, and it cannot be swallowed here.
+            // Mid-game failures also keep propagating: the play-on contract
+            // leaves them to endWithTechnicalWinner.
+            if (!isPreGameChoice(game) || !thrownAfterFullLadder(e)) {
+                throw e;
+            }
+            concedeOnTerminalFailure(game, e, "pre-game yes/no: " + message);
+            return false;
         }
-
-        // Compact game state
-        prompt.append("\n=== GAME STATE ===\n");
-        // Phase suppressed when identical to Step (see LLMGameSerializer.formatTurnPhaseStep).
-        prompt.append(LLMGameSerializer.formatTurnPhaseStep(game)).append("\n");
-        for (Player p : game.getPlayers().values()) {
-            prompt.append("  ").append(p.getName());
-            if (p.getId().equals(getId())) prompt.append(" (YOU)");
-            prompt.append(": Life ").append(p.getLife())
-                  .append(", Hand ").append(p.getHand().size()).append("\n");
-        }
-
-        // Floating mana — critical for Ward/payment decisions
-        prompt.append("\nFloating mana: ");
-        if (getManaPool().isEmpty()) {
-            prompt.append("None\n");
-        } else {
-            prompt.append(getManaPool().getMana().toString()).append("\n");
-        }
-
-        // Hand for context
-        prompt.append("\nYour hand:\n");
-        for (Card card : getHand().getCards(game)) {
-            prompt.append("  ").append(LLMGameSerializer.formatCardForChoiceOnce(game, getId(), card)).append("\n");
-        }
-
-        if (trueText != null && falseText != null) {
-            prompt.append("\nOptions:\n");
-            prompt.append("  YES: ").append(trueText).append("\n");
-            prompt.append("  NO: ").append(falseText).append("\n");
-        } else {
-            prompt.append("\nReply YES to accept, or NO to decline.\n");
-        }
-        prompt.append("\nReply with ONLY the word 'yes' or the word 'no' — nothing else.");
-
-        if (config.isVerboseLogging())
-            logger.info("=== LLM YES/NO ===\n" + prompt + "\n=== END ===");
-
-        LLMResponse resp = chatAndRecord(game, prompt.toString(),
-                "YN: " + message.substring(0, Math.min(message.length(), 80)),
-                "yesno", YES_NO_VALIDATOR);
 
         if (config.isVerboseLogging()) {
             logger.info("LLM yes/no response: '" + resp.answer + "'");
@@ -3349,23 +3822,59 @@ public class LLMPlayer extends ComputerPlayer {
         // yes/no interpretation (e.g. reasoning containing "not" or "pass"
         // must not flip the decision).
         String decision = firstLineOf(resp.answer).toLowerCase();
-        // Narrow exact-match parse — the prompt promises 'yes' or 'no' and
-        // nothing else, so anything else crashes Fail-Fast.
-        // Parser, validator (YES_NO_VALIDATOR), and prompt all agree on
-        // exactly 'yes'/'no' — no synonym table ("not" contains "no",
-        // "pass" is a combat/legal term, etc.).
+        // Narrow exact-match parse — the prompt promises 'yes' or 'no' and nothing
+        // else, and the validator now reinforces that two-word contract with
+        // YES_NO_FORMAT_NUDGES explicit corrections before this point is reached.
         boolean answer;
         if (decision.equals("yes")) {
             answer = true;
         } else if (decision.equals("no")) {
             answer = false;
         } else {
-            // Unrecognized — throw rather than silently defaulting
-            throw new RuntimeException("LLM yes/no: unrecognized response '" + resp.answer
-                    + "' for question: " + message);
+            // Still prose after the bounded corrections: FORFEIT this seat. This used to
+            // throw, the throw escaped the game thread, and
+            // GameController.endGameWithError -> endWithTechnicalWinner awarded the game
+            // to the OPPONENT by life total — that decided the 2026-10-25 tournament
+            // final. A concede is the engine's real loss: endReason llm_format_forfeit,
+            // this seat is out, and any other seats play on.
+            // Transport/API failures keep their own path (the catch above, unchanged).
+            return forfeitOnYesNoFormatDisobedience(game, message, resp);
         }
         addSelfLog(gameTurnStep(game) + ": " + (answer ? "Yes" : "No") + " — " + message);
         return answer;
+    }
+
+    /**
+     * Forfeit the seat for answering a strict yes/no question with prose after
+     * {@link #YES_NO_FORMAT_NUDGES} explicit "reply exactly yes or no" corrections.
+     * <p>
+     * This is the ruled replacement for the parser's old RuntimeException: that throw
+     * escaped the game thread, so {@code GameController.endGameWithError} ->
+     * {@code endWithTechnicalWinner} picked a winner by life, priority-time left or
+     * random, and the seat that ignored the format could still take the game. A
+     * concede is the engine's own unwind (the same one the pre-game guards drive), so
+     * the seat records a REAL loss: {@link GameEndReason#LLM_FORMAT_FORFEIT} is stamped
+     * before {@code PlayerImpl.concede}'s CONCEDE stamp can replace it, a two-seat game
+     * ends with the opponent as the ordinary winner, and in a multiplayer game the
+     * remaining seats keep playing.
+     * <p>
+     * Format disobedience only: transport/API failures still take the catch above,
+     * which rethrows mid-game under the play-on semantics described above.
+     *
+     * @return the engine's benign "declined" value, like the pre-game guard
+     */
+    private boolean forfeitOnYesNoFormatDisobedience(Game game, String question, LLMResponse resp) {
+        String answer = resp == null ? null : resp.answer;
+        String why = "LLM yes/no: unrecognized response '" + answer + "' for question: " + question
+                + " — still not exactly yes/no after " + YES_NO_FORMAT_NUDGES + " explicit corrections";
+        this.lastTerminalFailure = new IllegalStateException(why);
+        logger.fatal(why + " — " + getLogName() + " forfeits game " + game.getId());
+        addSelfLog(gameTurnStep(game) + ": YES/NO FORMAT FORFEIT — " + why);
+        game.informPlayers(getLogName()
+                + " loses the game (LLM did not answer the yes/no prompt with exactly yes or no).");
+        game.getState().setEndReason(GameEndReason.LLM_FORMAT_FORFEIT);
+        concede(game);
+        return false;
     }
 
     // ==================================================================
@@ -3937,16 +4446,26 @@ public class LLMPlayer extends ComputerPlayer {
         if (config.isVerboseLogging())
             logger.info("=== LLM TRIGGER ORDER ===\n" + prompt + "\n=== END ===");
 
-        LLMResponse resp = chatAndRecord(game, prompt.toString(), "Order triggers on stack", "order", SIMPLE_NUMBER_VALIDATOR);
+        LLMResponse resp = chatAndRecord(game, prompt.toString(), "Order triggers on stack", "order",
+                numberInRange(1, abilities.size()));
 
         if (config.isVerboseLogging() && resp.thinking != null && !resp.thinking.isEmpty())
             logger.info("=== LLM THINKING ===\n" + resp.thinking + "\n=== END ===");
 
-        int idx = parseActionNumber(resp.answer);
-        if (idx >= 1 && idx <= abilities.size())
+        int idx = pickNumbered(resp.answer, abilities.size());
+        if (idx >= 1)
             return abilities.get(idx - 1);
-        throw new RuntimeException("LLM trigger order: invalid index " + idx + " (valid: 1-"
-                + abilities.size() + "). Answer: '" + resp.answer + "'");
+        // Out-of-range order after the correction prompt: keep the
+        // order the prompt listed first (the decline order) instead of throwing.
+        // Observed live as "LLM trigger order: invalid index 0 (valid: 1-2). Answer: '0'".
+        TriggeredAbility fallbackTrigger = pickOrFirst(abilities, resp.answer);
+        String orderReport = "LLM trigger order: invalid index " + parseActionNumber(resp.answer)
+                + " (valid: 1-" + abilities.size() + "). Answer: '" + resp.answer + "'"
+                + ". Taking the legal fallback: first listed trigger ("
+                + fallbackTrigger.getRule() + ").";
+        logger.fatal(orderReport);
+        addSelfLog(gameTurnStep(game) + ": " + orderReport);
+        return fallbackTrigger;
     }
 
     // --- Replacement effect choice ---
@@ -3971,17 +4490,23 @@ public class LLMPlayer extends ComputerPlayer {
         if (config.isVerboseLogging())
             logger.info("=== LLM REPLACEMENT ===\n" + prompt + "\n=== END ===");
 
-        LLMResponse resp = chatAndRecord(game, prompt.toString(), "Choose replacement effect", "replacement", SIMPLE_NUMBER_VALIDATOR);
+        LLMResponse resp = chatAndRecord(game, prompt.toString(), "Choose replacement effect", "replacement",
+                numberInRange(1, effectsMap.size()));
 
         if (config.isVerboseLogging() && resp.thinking != null && !resp.thinking.isEmpty())
             logger.info("=== LLM THINKING ===\n" + resp.thinking + "\n=== END ===");
 
-        int idx = parseActionNumber(resp.answer);
-        // Return 0-based index into the map
-        if (idx >= 1 && idx <= effectsMap.size())
+        int idx = pickNumbered(resp.answer, effectsMap.size());
+        // Return 0-based index into the map. 0 (the first effect) is the legal fallback
+        // when the model answered a number the prompt did not offer.
+        if (idx >= 1)
             return idx - 1;
-        throw new RuntimeException("LLM replacement effect: invalid index " + idx + " (valid: 1-"
-                + effectsMap.size() + "). Answer: '" + resp.answer + "'");
+        String effectReport = "LLM replacement effect: invalid index " + parseActionNumber(resp.answer)
+                + " (valid: 1-" + effectsMap.size() + "). Answer: '" + resp.answer + "'"
+                + ". Taking the legal fallback: effect 1.";
+        logger.fatal(effectReport);
+        addSelfLog(gameTurnStep(game) + ": " + effectReport);
+        return 0;
     }
 
     // --- Numeric choice (how many counters, how many cards drawn, etc.) ---
@@ -4009,24 +4534,27 @@ public class LLMPlayer extends ComputerPlayer {
             logger.info("=== LLM AMOUNT ===\n" + prompt + "\n=== END ===");
 
         String amtMsg = (message != null && message.length() > 80) ? message.substring(0, 80) + "..." : message;
-        LLMResponse resp = chatAndRecord(game, prompt.toString(), "Amount: " + amtMsg, "amount", SIMPLE_NUMBER_VALIDATOR);
+        LLMResponse resp = chatAndRecord(game, prompt.toString(), "Amount: " + amtMsg, "amount",
+                numberInRange(min, max));
 
         if (config.isVerboseLogging() && resp.thinking != null && !resp.thinking.isEmpty())
             logger.info("=== LLM THINKING ===\n" + resp.thinking + "\n=== END ===");
 
-        try {
-            // First line only — chatAndRecord accepts first-line-valid answers
-            // (passesValidation), so trailing reasoning must not break the parse.
-            int val = Integer.parseInt(firstLineOf(resp.answer));
-            if (val < min || val > max) {
-                throw new RuntimeException("LLM amount " + val + " out of range [" + min + "," + max
-                        + "] for question: " + message);
-            }
-            addSelfLog(gameTurnStep(game) + ": Amount " + val + " (" + message + ")");
-            return val;
-        } catch (NumberFormatException e) {
-            throw new RuntimeException("Failed to parse LLM amount response: '" + resp.answer + "'", e);
+        // Range-checked by numberInRange above (correction prompt names [min,max]);
+        // a repeated out-of-range number is clamped to the nearest legal value
+        // instead of throwing — getAmount() is engine-supplied with
+        // a hard legal range, so the clamp can never produce an illegal amount.
+        int parsed = parseFirstNumber(resp.answer);
+        int val = Math.max(min, Math.min(max, parsed));
+        if (parsed < min || parsed > max) {
+            String amountReport = "LLM amount " + parsed + " out of range [" + min + "," + max
+                    + "] for question: " + message + " (answer: '" + resp.answer + "')"
+                    + ". Taking the legal fallback: " + val + ".";
+            logger.fatal(amountReport);
+            addSelfLog(gameTurnStep(game) + ": " + amountReport);
         }
+        addSelfLog(gameTurnStep(game) + ": Amount " + val + " (" + message + ")");
+        return val;
     }
 
     // --- X cost announcement (Walking Ballista, Finale of Devastation, etc.) ---
@@ -4417,25 +4945,51 @@ public class LLMPlayer extends ComputerPlayer {
         if (config.isVerboseLogging())
             logger.info("=== LLM CAST SIDE ===\n" + prompt + "\n=== END ===");
 
-        LLMResponse resp = chatAndRecord(game, prompt.toString(), "Cast side: " + card.getName(), "castside", SIMPLE_NUMBER_VALIDATOR);
+        LLMResponse resp = chatAndRecord(game, prompt.toString(), "Cast side: " + card.getName(), "castside",
+                numberInRange(1, abilities.size()));
 
         if (config.isVerboseLogging() && resp.thinking != null && !resp.thinking.isEmpty())
             logger.info("=== LLM THINKING ===\n" + resp.thinking + "\n=== END ===");
 
-        int idx = parseActionNumber(resp.answer);
-        if (idx >= 1 && idx <= abilities.size()) {
+        int idx = pickNumbered(resp.answer, abilities.size());
+        if (idx >= 1) {
             addSelfLog(gameTurnStep(game) + ": Cast " + card.getName() + " as side " + idx);
             return abilities.get(idx - 1);
         }
-        // Fail Fast: if the LLM gave an invalid side index, crash so the bug
-        // is visible. Silent fallbacks mask LLM errors.
-        throw new RuntimeException("LLM cast side: invalid index " + idx + " (valid: 1-"
-                + abilities.size() + "). Answer: '" + resp.answer + "' for: " + card.getName());
+        // Out-of-range side after the correction prompt: take the
+        // first legal side — the card's ordinary cast mode — instead of throwing.
+        // A FATAL here rolled the turn back and burned one of the game's 15
+        // priority-error budget; a model answering "17" for a 2-side card is a
+        // model error, not a reason to abort the game.
+        SpellAbility fallbackSide = pickOrFirst(abilities, resp.answer);
+        String sideReport = "LLM cast side: invalid index " + parseActionNumber(resp.answer)
+                + " (valid: 1-" + abilities.size() + "). Answer: '" + resp.answer + "' for: " + card.getName()
+                + ". Taking the legal fallback: side 1 (" + fallbackSide.getName() + ").";
+        logger.fatal(sideReport);
+        addSelfLog(gameTurnStep(game) + ": " + sideReport);
+        return fallbackSide;
     }
 
     // ==================================================================
     //  CARD SELECTIONS — LLM-driven (tutors, Brainstorm, discards, etc.)
     // ==================================================================
+
+    /**
+     * One-shot flag marking the boundary between PROMPT ASSEMBLY and the
+     * provider call inside the target pickers — the same discriminator
+     * {@code chooseUse} / {@code chooseMulligan} keep in a local
+     * {@code providerCallStarted} boolean.
+     * <p>
+     * It has to cross a method boundary here because the funnels own the
+     * {@code catch} while the pickers own the {@code chatAndRecord} call: a
+     * throw raised before {@code started} becomes true never sent a request,
+     * so the retry ladder owns nothing and the failure must take
+     * {@link #failPreGamePromptAssembly} instead of the ladder-gated forfeit
+     * (which rethrows anything that is not {@link #thrownAfterFullLadder}).
+     */
+    private static final class ProviderCallBoundary {
+        private boolean started;
+    }
 
     // choose(Outcome, Target, Ability, Game) — catch-all target routing.
     // Cards like Chrome Mox call this instead of chooseTarget(); route to LLM.
@@ -4452,6 +5006,7 @@ public class LLMPlayer extends ComputerPlayer {
     // Called by Target (hand, graveyard, library search, etc.)
     @Override
     public boolean chooseTarget(Outcome outcome, Target target, Ability source, Game game) {
+        ProviderCallBoundary providerCall = new ProviderCallBoundary();
         // Derive candidates for the CHOOSING player, not the ability controller:
         // getAffectedAbilityControllerId returns the explicit ability controller when
         // set, else the choosing player (matches HumanPlayer/ComputerPlayer). Using
@@ -4504,9 +5059,9 @@ public class LLMPlayer extends ComputerPlayer {
         try {
             return presentTargetChoice(target.getMessage(game),
                     target.getMinNumberOfTargets(), target.getMaxNumberOfTargets(),
-                    cards, players, target, source, game, false);
+                    cards, players, target, source, game, false, providerCall);
         } catch (RuntimeException e) {
-            return failPreGameTargetChoice(game, target, e);
+            return failPreGameTargetChoice(game, target, e, providerCall.started);
         }
     }
 
@@ -4538,6 +5093,7 @@ public class LLMPlayer extends ComputerPlayer {
         if (fromCards == null || fromCards.isEmpty())
             return super.chooseTarget(outcome, fromCards, target, source, game);
 
+        ProviderCallBoundary providerCall = new ProviderCallBoundary();
         List<Card> cards = fromCards.getCards(game).stream().collect(Collectors.toList());
         int max = target.getMaxNumberOfTargets();
         String reason = target.getMessage(game);
@@ -4556,9 +5112,9 @@ public class LLMPlayer extends ComputerPlayer {
         try {
             return presentCardChoice(reason,
                     target.getMinNumberOfTargets(), max,
-                    cards, target, source, game, true);
+                    cards, target, source, game, true, providerCall);
         } catch (RuntimeException e) {
-            return failPreGameTargetChoice(game, target, e);
+            return failPreGameTargetChoice(game, target, e, providerCall.started);
         }
     }
 
@@ -4569,6 +5125,7 @@ public class LLMPlayer extends ComputerPlayer {
         if (fromCards == null || fromCards.isEmpty())
             return super.choose(outcome, fromCards, target, source, game);
 
+        ProviderCallBoundary providerCall = new ProviderCallBoundary();
         List<Card> cards = fromCards.getCards(game).stream().collect(Collectors.toList());
         String reason = target.getMessage(game);
         int max = target.getMaxNumberOfTargets();
@@ -4587,18 +5144,18 @@ public class LLMPlayer extends ComputerPlayer {
         try {
             return presentCardChoice(reason,
                     target.getMinNumberOfTargets(), max,
-                    cards, target, source, game, true);
+                    cards, target, source, game, true, providerCall);
         } catch (RuntimeException e) {
-            return failPreGameTargetChoice(game, target, e);
+            return failPreGameTargetChoice(game, target, e, providerCall.started);
         }
     }
 
     private boolean presentCardChoice(String reason, int min, int max,
                                        List<Card> cards, Target target,
                                        Ability source, Game game,
-                                       boolean useCardAdd) {
+                                       boolean useCardAdd, ProviderCallBoundary providerCall) {
         return presentTargetChoice(reason, min, max, cards, Collections.emptyList(),
-                                    target, source, game, useCardAdd);
+                                    target, source, game, useCardAdd, providerCall);
     }
 
     /**
@@ -4608,14 +5165,15 @@ public class LLMPlayer extends ComputerPlayer {
     private boolean presentTargetChoice(String reason, int min, int max,
                                          List<Card> cards, List<Player> players,
                                          Target target, Ability source, Game game,
-                                         boolean useCardAdd) {
+                                         boolean useCardAdd, ProviderCallBoundary providerCall) {
 
         // For large library/graveyard searches (Doomsday, Tinker, Survival, etc.),
         // switch to free-text card names — a 50+ item numbered list is unreadable.
         boolean isLibraryOrGraveyard = target != null
                 && (target.getZone() == Zone.LIBRARY || target.getZone() == Zone.GRAVEYARD);
         if (cards.size() > 50 && isLibraryOrGraveyard) {
-            return presentLargeCardTargetChoice(reason, min, max, cards, target, source, game, useCardAdd);
+            return presentLargeCardTargetChoice(reason, min, max, cards, target, source, game,
+                    useCardAdd, providerCall);
         }
         StringBuilder prompt = new StringBuilder();
         // Detect library searches (fetchlands, tutors) — these should not be
@@ -4782,6 +5340,9 @@ public class LLMPlayer extends ComputerPlayer {
         if (config.isVerboseLogging())
             logger.info("=== LLM TARGET SELECTION ===\n" + prompt + "\n=== END ===");
 
+        // Prompt assembly is done — from here on a throw is a provider/parse
+        // failure, not an assembly failure (the funnel's catch reads this).
+        providerCall.started = true;
         LLMResponse resp = chatAndRecord(game, prompt.toString(),
                 "Target: " + sourceName,
                 "target", COMMA_NUMBERS_VALIDATOR);
@@ -4817,51 +5378,57 @@ public class LLMPlayer extends ComputerPlayer {
         boolean foundAny = false;
         int addedCount = 0;
         int maxTargets = max;
-        for (String part : cleaned.split(",")) {
-            String trimmed = part.trim();
-            if (trimmed.isEmpty()) continue;
-            try {
-                int idx = Integer.parseInt(trimmed) - 1;
-                // Guard: when maxTargets == 1, only the first valid selection counts.
-                // Extra entries in a comma answer (e.g. "2,4" on a single-select
-                // Brainstorm) would otherwise fire duplicate addSelfLog entries.
-                if (maxTargets == 1 && addedCount >= 1) {
-                    logger.warn("presentTargetChoice: maxTargets=1 but LLM answered '"
-                            + resp.answer + "' — ignoring extra selection '" + trimmed + "'");
-                    break;
+        // Tokenisation lives in LLMAnswerParser: it splits on commas OR
+        // whitespace (the validator's own accept-set) — "18   2       19  18"
+        // used to arrive here as ONE token, and the NumberFormatException was
+        // re-thrown as a RuntimeException that ended the game as a technical
+        // winner (two 2026-10-29 Bo3 games). A token that still cannot be
+        // parsed is skipped with a WARN here; the retry ladder below stays the
+        // one and only recovery path for "fewer than min targets".
+        LLMAnswerParser.TargetNumbers parsed =
+                LLMAnswerParser.parseTargetNumbersReporting(resp.answer);
+        for (String skippedToken : parsed.skipped()) {
+            logger.warn("presentTargetChoice: skipping unparsable target token '"
+                    + skippedToken + "' from answer: '" + resp.answer + "'");
+        }
+        for (int number : parsed.numbers()) {
+            int idx = number - 1;
+            // Guard: when maxTargets == 1, only the first valid selection counts.
+            // Extra entries in a comma answer (e.g. "2,4" on a single-select
+            // Brainstorm) would otherwise fire duplicate addSelfLog entries.
+            if (maxTargets == 1 && addedCount >= 1) {
+                logger.warn("presentTargetChoice: maxTargets=1 but LLM answered '"
+                        + resp.answer + "' — ignoring extra selection '" + number + "'");
+                break;
+            }
+            if (idx >= 0 && idx < cards.size()) {
+                if (useCardAdd) {
+                    ((TargetCard) target).add(cards.get(idx).getId(), game);
+                } else {
+                    target.addTarget(cards.get(idx).getId(), source, game);
                 }
-                if (idx >= 0 && idx < cards.size()) {
-                    if (useCardAdd) {
-                        ((TargetCard) target).add(cards.get(idx).getId(), game);
-                    } else {
-                        target.addTarget(cards.get(idx).getId(), source, game);
-                    }
-                    foundAny = true;
-                    addedCount++;
-                    if (isLegendRule) {
-                        addSelfLog(gameTurnStep(game) + ": Legend rule — kept " + cards.get(idx).getName()
-                                + " (" + LLMGameSerializer.formatCardForChoiceOnce(game, getId(), cards.get(idx)) + ")");
-                    } else if (isMulliganBottom) {
-                        // F8b: this is the London-mulligan "put one on the bottom"
-                        // pick, not a "chose this card" targeting choice.
-                        addSelfLog(gameTurnStep(game) + ": Bottomed " + cards.get(idx).getName()
-                                + " (mulligan)");
-                    } else if (isSurveil) {
-                        addSelfLog(gameTurnStep(game) + ": Surveil — put " + cards.get(idx).getName()
-                                + " into graveyard");
-                    } else {
-                        addSelfLog(gameTurnStep(game) + ": Chose " + cards.get(idx).getName());
-                    }
-                } else if (idx >= cards.size() && idx - cards.size() < players.size()) {
-                    Player chosen = players.get(idx - cards.size());
-                    target.addTarget(chosen.getId(), source, game);
-                    foundAny = true;
-                    addedCount++;
-                    addSelfLog(gameTurnStep(game) + ": Chose player " + chosen.getName());
+                foundAny = true;
+                addedCount++;
+                if (isLegendRule) {
+                    addSelfLog(gameTurnStep(game) + ": Legend rule — kept " + cards.get(idx).getName()
+                            + " (" + LLMGameSerializer.formatCardForChoiceOnce(game, getId(), cards.get(idx)) + ")");
+                } else if (isMulliganBottom) {
+                    // F8b: this is the London-mulligan "put one on the bottom"
+                    // pick, not a "chose this card" targeting choice.
+                    addSelfLog(gameTurnStep(game) + ": Bottomed " + cards.get(idx).getName()
+                            + " (mulligan)");
+                } else if (isSurveil) {
+                    addSelfLog(gameTurnStep(game) + ": Surveil — put " + cards.get(idx).getName()
+                            + " into graveyard");
+                } else {
+                    addSelfLog(gameTurnStep(game) + ": Chose " + cards.get(idx).getName());
                 }
-            } catch (NumberFormatException e) {
-                throw new RuntimeException("Failed to parse target selection number: '" + trimmed
-                        + "' from answer: '" + resp.answer + "'", e);
+            } else if (idx >= cards.size() && idx - cards.size() < players.size()) {
+                Player chosen = players.get(idx - cards.size());
+                target.addTarget(chosen.getId(), source, game);
+                foundAny = true;
+                addedCount++;
+                addSelfLog(gameTurnStep(game) + ": Chose player " + chosen.getName());
             }
         }
 
@@ -4887,39 +5454,41 @@ public class LLMPlayer extends ComputerPlayer {
                 logger.info("LLM retry choice: '" + resp.answer + "'");
             }
 
-            for (String part : firstLineOf(resp.answer).replaceAll("[^0-9,\\s]", "").split(",")) {
-                String trimmed = part.trim();
-                if (trimmed.isEmpty()) continue;
-                try {
-                    int idx = Integer.parseInt(trimmed) - 1;
-                    if (idx >= 0 && idx < cards.size()) {
-                        if (useCardAdd) {
-                            ((TargetCard) target).add(cards.get(idx).getId(), game);
-                        } else {
-                            target.addTarget(cards.get(idx).getId(), source, game);
-                        }
-                        foundAny = true;
-                        if (isLegendRule) {
-                            addSelfLog(gameTurnStep(game) + ": Legend rule — kept " + cards.get(idx).getName()
-                                    + " (" + LLMGameSerializer.formatCardForChoiceOnce(game, getId(), cards.get(idx)) + ")");
-                        } else if (isMulliganBottom) {
-                            addSelfLog(gameTurnStep(game) + ": Bottomed " + cards.get(idx).getName()
-                                    + " (mulligan)");
-                        } else if (isSurveil) {
-                            addSelfLog(gameTurnStep(game) + ": Surveil — put " + cards.get(idx).getName()
-                                    + " into graveyard");
-                        } else {
-                            addSelfLog(gameTurnStep(game) + ": Chose " + cards.get(idx).getName());
-                        }
-                    } else if (idx >= cards.size() && idx - cards.size() < players.size()) {
-                        Player chosen = players.get(idx - cards.size());
-                        target.addTarget(chosen.getId(), source, game);
-                        foundAny = true;
-                        addSelfLog(gameTurnStep(game) + ": Chose player " + chosen.getName());
+            // Same parser as the first pass — whitespace-separated numbers are
+            // legal here too, and a bad token is skipped (WARN) instead of
+            // converted into a RuntimeException.
+            LLMAnswerParser.TargetNumbers retryParsed =
+                    LLMAnswerParser.parseTargetNumbersReporting(resp.answer);
+            for (String skippedToken : retryParsed.skipped()) {
+                logger.warn("presentTargetChoice retry: skipping unparsable target token '"
+                        + skippedToken + "' from answer: '" + resp.answer + "'");
+            }
+            for (int number : retryParsed.numbers()) {
+                int idx = number - 1;
+                if (idx >= 0 && idx < cards.size()) {
+                    if (useCardAdd) {
+                        ((TargetCard) target).add(cards.get(idx).getId(), game);
+                    } else {
+                        target.addTarget(cards.get(idx).getId(), source, game);
                     }
-                } catch (NumberFormatException e) {
-                    throw new RuntimeException("Failed to parse target selection number: '" + trimmed
-                            + "' from retry answer: '" + resp.answer + "'", e);
+                    foundAny = true;
+                    if (isLegendRule) {
+                        addSelfLog(gameTurnStep(game) + ": Legend rule — kept " + cards.get(idx).getName()
+                                + " (" + LLMGameSerializer.formatCardForChoiceOnce(game, getId(), cards.get(idx)) + ")");
+                    } else if (isMulliganBottom) {
+                        addSelfLog(gameTurnStep(game) + ": Bottomed " + cards.get(idx).getName()
+                                + " (mulligan)");
+                    } else if (isSurveil) {
+                        addSelfLog(gameTurnStep(game) + ": Surveil — put " + cards.get(idx).getName()
+                                + " into graveyard");
+                    } else {
+                        addSelfLog(gameTurnStep(game) + ": Chose " + cards.get(idx).getName());
+                    }
+                } else if (idx >= cards.size() && idx - cards.size() < players.size()) {
+                    Player chosen = players.get(idx - cards.size());
+                    target.addTarget(chosen.getId(), source, game);
+                    foundAny = true;
+                    addSelfLog(gameTurnStep(game) + ": Chose player " + chosen.getName());
                 }
             }
         }
@@ -4935,7 +5504,8 @@ public class LLMPlayer extends ComputerPlayer {
     private boolean presentLargeCardTargetChoice(String reason, int min, int max,
                                                   List<Card> cards, Target target,
                                                   Ability source, Game game,
-                                                  boolean useCardAdd) {
+                                                  boolean useCardAdd,
+                                                  ProviderCallBoundary providerCall) {
         // Build a compact map: lowercased name -> list of card UUIDs matching it
         Map<String, List<UUID>> nameMap = new LinkedHashMap<>();
         List<String> uniqueNames = new ArrayList<>();
@@ -5000,6 +5570,7 @@ public class LLMPlayer extends ComputerPlayer {
         if (config.isVerboseLogging())
             logger.info("=== LLM LARGE TARGET SELECTION ===\n" + prompt + "\n=== END ===");
 
+        providerCall.started = true;
         LLMResponse resp = chatAndRecord(game, prompt.toString(),
                 "Search: " + sourceName,
                 "cardsearch");
@@ -5494,8 +6065,7 @@ public class LLMPlayer extends ComputerPlayer {
             // (sideboarding/next game rotate it, and then the task owns nothing).
             final long transcriptToken = (client != null) ? client.detachTranscriptForAsyncClose() : -1L;
             // Client-key seats: pin the bridge route NOW, on the game thread,
-            // while the game is still registered (
-            // deciding-game-reflection-no-bridge.md). For the match-DECIDING
+            // while the game is still registered. For the match-DECIDING
             // game the live gameId → tableId link is gone when the async
             // reflection fires 25-37 s later; the pinned token lets the
             // transport serve that call from the captured route instead.
@@ -5773,8 +6343,10 @@ public class LLMPlayer extends ComputerPlayer {
             int inIdx = upper.indexOf("IN:");
             int outIdx = upper.indexOf("OUT:", inIdx >= 0 ? inIdx : 0);
             if (inIdx >= 0 && outIdx >= 0) {
-                List<String> cardsIn = parseCardList(sideboardAnswer.substring(inIdx + 3, outIdx).trim());
-                List<String> cardsOut = parseCardList(sideboardAnswer.substring(outIdx + 4).trim());
+                List<String> cardsIn = LLMAnswerParser.parseCardList(
+                        sideboardAnswer.substring(inIdx + 3, outIdx).trim());
+                List<String> cardsOut = LLMAnswerParser.parseCardList(
+                        sideboardAnswer.substring(outIdx + 4).trim());
                 sideboardOutput.append("IN:  ").append(cardsIn).append("\n");
                 sideboardOutput.append("OUT: ").append(cardsOut).append("\n");
             } else {
@@ -5912,12 +6484,16 @@ public class LLMPlayer extends ComputerPlayer {
             throw new RuntimeException("applySideboardChanges: sideboard response missing IN:/OUT: sections: " + response);
         }
 
-        // Extract card names from the IN and OUT sections
+        // Extract card names from the IN and OUT sections. The parser strips
+        // markdown emphasis, list markers and residual section labels before a
+        // line can become a card name (a markdown-formatted sideboard plan used
+        // to yield "**", "IN:" and "- Pyroblast" as card names, so every entry
+        // failed to resolve — 14/16 WARN lines for one seat in one step).
         String inSection = response.substring(inIdx + 3, outIdx).trim();
         String outSection = response.substring(outIdx + 4).trim();
 
-        List<String> cardsIn = parseCardList(inSection);
-        List<String> cardsOut = parseCardList(outSection);
+        List<String> cardsIn = LLMAnswerParser.parseCardList(inSection);
+        List<String> cardsOut = LLMAnswerParser.parseCardList(outSection);
 
         if (cardsIn.isEmpty() && cardsOut.isEmpty()) {
             if (config.isVerboseLogging())
@@ -5933,30 +6509,40 @@ public class LLMPlayer extends ComputerPlayer {
         Set<Card> maindeck = deck.getCards();
         Set<Card> sideboard = deck.getSideboard();
 
+        // One aggregate WARN for a partial plan instead of one per token: the
+        // raw answer rides along so the unmatched names are diagnosable from
+        // the server log without reproducing the call.
+        int unresolved = 0;
+
         // Process OUT first: remove from maindeck, add to sideboard
         for (String cardName : cardsOut) {
-            Card toRemove = findCardByName(maindeck, cardName);
+            Card toRemove = resolveSideboardEntry(maindeck, cardName);
             if (toRemove != null) {
                 maindeck.remove(toRemove);
                 sideboard.add(toRemove);
                 if (config.isVerboseLogging())
-                    logger.info("  Sideboarded OUT: " + cardName);
+                    logger.info("  Sideboarded OUT: " + toRemove.getName());
             } else {
-                logger.warn("  Could not find '" + cardName + "' in maindeck");
+                unresolved++;
             }
         }
 
         // Process IN: remove from sideboard, add to maindeck
         for (String cardName : cardsIn) {
-            Card toAdd = findCardByName(sideboard, cardName);
+            Card toAdd = resolveSideboardEntry(sideboard, cardName);
             if (toAdd != null) {
                 sideboard.remove(toAdd);
                 maindeck.add(toAdd);
                 if (config.isVerboseLogging())
-                    logger.info("  Sideboarded IN:  " + cardName);
+                    logger.info("  Sideboarded IN:  " + toAdd.getName());
             } else {
-                logger.warn("  Could not find '" + cardName + "' in sideboard");
+                unresolved++;
             }
+        }
+
+        if (unresolved > 0) {
+            logger.warn("applySideboardChanges: " + unresolved
+                    + " sideboard token(s) did not resolve to a card; answer: '" + response + "'");
         }
 
         if (config.isVerboseLogging()) {
@@ -5965,12 +6551,22 @@ public class LLMPlayer extends ComputerPlayer {
         }
     }
 
-    /** Parse a block of card names (one per line) into a list. */
-    private List<String> parseCardList(String section) {
-        return Arrays.stream(section.split("[\\r\\n]+"))
-                .map(String::trim)
-                .filter(line -> !line.isEmpty() && !line.equalsIgnoreCase("NONE"))
-                .collect(Collectors.toList());
+    /**
+     * Resolve one parsed sideboard entry against a card set. The whole entry
+     * is tried first — card names legitimately contain commas ("Kess,
+     * Dissident Mage", "Atraxa, Praetors' Voice") and must never be blind-split
+     * — and only an entry that does not resolve whole falls back to its
+     * comma-split parts (an inline "Pyroblast, Red Elemental Blast" answer).
+     * {@link #findCardByName} stays the single name matcher.
+     *
+     * @return the matching card, or null when nothing in the entry resolves.
+     */
+    private Card resolveSideboardEntry(Set<Card> cards, String entry) {
+        for (String candidate : LLMAnswerParser.cardNameCandidates(entry)) {
+            Card card = findCardByName(cards, candidate);
+            if (card != null) return card;
+        }
+        return null;
     }
 
     /**

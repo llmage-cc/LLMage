@@ -178,15 +178,21 @@ Test-scope only, not shipped in any runtime archive: `junit:junit` 4.13.2
 
 ## Vendored Maven artifacts
 
-- `repository/com/googlecode/jspf/jspf-core/0.9.1/` — **JSPF (Java Simple
-  Plugin Framework)**, `net.xeoh` / Ralph Biedert, vendored because the
-  artifact is no longer on Maven Central (originally
-  https://code.google.com/p/jspf, mirrored at
-  https://github.com/gearlles/jspf). The project describes itself as "Free
-  (beer and speech)" but ships no licence text, and none is embedded in the jar
-  or its POM. No licence grant is recorded: this dependency is unresolved and is
-  redistributed only because the build requires it (compile scope in
-  `Mage.Common` and `Mage.Client`, so it appears in every built lib directory).
+- `repository/com/googlecode/jspf/` — **JSPF (Java Simple Plugin Framework)**
+  by Ralph Biedert (`net.xeoh`, `com.googlecode.jspf:jspf-core:0.9.1`).
+  Originally published at https://code.google.com/p/jspf; the surviving public
+  mirror is https://github.com/gearlles/jspf. Vendored because the artifact is
+  gone from Maven Central: the tree holds the jar, its POM,
+  `maven-metadata.xml` and their checksums (9 tracked files), and both
+  `Mage.Client/pom.xml` and `Mage.Common/pom.xml` consume it through the
+  in-repo `local-project-repo` (`file://${project.basedir}/../repository`).
+  **Licence: unresolved.** There is no LICENSE or NOTICE entry in the jar, no
+  licence header in the class files, and its POM declares no `<licenses>`
+  block; the project only describes itself as "Free (beer and speech)", which
+  is not an SPDX licence. No grant has been obtained from the author. The
+  risk is accepted knowingly: the dependency is used unmodified for plugin
+  discovery (the same jar upstream XMage has shipped for years) and is
+  retained until it can be replaced or a licence statement is recorded here.
 - `Mage.Client/plugins/mage-counter-plugin.jar` — first-party sample plugin
   (built from `Mage.Plugins/Mage.Counter.Plugin`, org.mage); included as a
   prebuilt artifact.
@@ -232,9 +238,9 @@ retains only the embedded Font Awesome notice.
   maps derived from Scryfall bulk card data: card name to Scryfall card UUID,
   and token name to printing. They are covered by the same Scryfall API terms.
   Scryfall does not endorse this project.
-- The client's image downloaders (Gatherer, Scryfall, magiccards.info and
-  other sources) fetch card images at runtime from those public services;
-  no card images are stored in this repository.
+- The client's image downloaders (wizards.com, Scryfall at big/normal/small
+  size, GrabBag and copy-paste URLs) fetch card images at runtime from those
+  public services; no card images are stored in this repository.
 
 ## Card back and card imagery
 
@@ -277,13 +283,20 @@ artwork.
 
 ## Web client
 
-- `Mage.WebProxy/web/frontend/base.css` — design tokens and reset adapted and
-  trimmed from the **mage-bench** project's Astro site
-  (https://github.com/GregorStocks/mage-bench), from its website stylesheet
-  `base.css`. **MIT License, Copyright (c) 2026 Gregor Stocks.** Modified by
-  this project (trimmed to tokens, reset and body baseline). The MIT text is the
-  one in [LICENSE.txt](LICENSE.txt); mage-bench's own `LICENSE.txt` carries the
-  same grant.
+- `Mage.WebProxy/web/frontend/base.css` — **first-party, clean-room.** Written
+  for this client from its own usage: the structure and the comments are ours,
+  and the custom-property names and values are our token contract (kept
+  identical so every consumer in `Mage.WebProxy/web` keeps working). No
+  content is copied from another project. The earlier note claiming this file
+  was trimmed from mage-bench's site stylesheet is withdrawn; the file is
+  covered by this repository's MIT licence and owes no separate notice.
+- `Mage.WebProxy/src/main/java/mage/webproxy/WebProxyClient.java` — implements
+  XMage's `MageClient` callback interface following the *pattern* of
+  mage-bench's `BridgeMageClient`
+  (https://github.com/GregorStocks/mage-bench): the same shape of wiring client
+  callbacks to a non-Swing transport, while the transport here is our own
+  JSON-over-WebSocket serializer. Pattern reference only, no code copied —
+  recorded separately from the token file above.
 
 ## Assets inherited from upstream without recorded provenance
 

@@ -4,8 +4,7 @@
 #
 # WHY: engine classes carry no pinned serialVersionUID, so every rebuild re-derives
 # theirs; a save from another build fails with InvalidClassException. The public
-# corpus is split across three such generations (
-# measurement.md §1).
+# corpus is split across three such generations.
 #
 # Usage:
 #   scripts/replay-uid-recover.sh [--in-place] <file-or-dir>...

@@ -251,8 +251,8 @@ export function ActionPromptBar() {
         </div>
       )}
 
-      {/* Per-type prompt BODIES moved to DecisionPopup (the centred window —
-          item 2): every prompt type renders mid-screen now, so it
+      {/* Per-type prompt BODIES moved to DecisionPopup (the centred window):
+          every prompt type renders mid-screen now, so it
           cannot be missed in the rail. This bar keeps the context line above
           (always rendered) and the meta controls below — Pass
           Priority, skips, Hold/Rollback, Concede. Keyboard shortcuts are

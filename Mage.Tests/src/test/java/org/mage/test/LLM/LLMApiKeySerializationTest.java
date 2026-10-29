@@ -43,6 +43,38 @@ public class LLMApiKeySerializationTest {
     }
 
     @Test
+    public void apiDialectSurvivesPlayerConfigSerialization() throws Exception {
+        // The seat config crosses client→server on the RPC: the new apiDialect
+        // field must be serialized (never transient) or the GUI's dialect choice
+        // silently disappears on the wire.
+        LLMPlayerConfig original = new LLMPlayerConfig();
+        original.setApiDialect("anthropic-messages");
+        LLMPlayerConfig copy = (LLMPlayerConfig) deserialize(serialize(original));
+        Assert.assertEquals("anthropic-messages", copy.getApiDialect());
+    }
+
+    @Test
+    public void apiDialectSurvivesRuntimeConfigSerialization() throws Exception {
+        LLMConfig original = new LLMConfig().apiDialect("openai-responses");
+        LLMConfig copy = (LLMConfig) deserialize(serialize(original));
+        Assert.assertEquals("openai-responses", copy.getApiDialect());
+    }
+
+    @Test
+    public void apiDialectDefaultsToChatCompletionsWhenAbsentFromASerializedSave() throws Exception {
+        // Old .game replays deserialize LLMConfig without the apiDialect field;
+        // Java leaves it null (constructors/field initializers do not run).
+        // Null must mean the historical chat-completions dialect, not a crash.
+        LLMConfig config = new LLMConfig();
+        java.lang.reflect.Field f = LLMConfig.class.getDeclaredField("apiDialect");
+        f.setAccessible(true);
+        f.set(config, null);
+        Assert.assertEquals("chat-completions", config.getApiDialect());
+        Assert.assertEquals(mage.player.llm.ApiDialect.CHAT_COMPLETIONS,
+                mage.player.llm.DialectCodecs.forConfig(config).dialect());
+    }
+
+    @Test
     public void playerConfigKeySurvivesSerialization() throws Exception {
         LLMPlayerConfig original = new LLMPlayerConfig();
         original.setApiKey("charm-test-key-123");

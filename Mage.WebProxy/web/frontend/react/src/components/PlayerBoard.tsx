@@ -363,9 +363,8 @@ function PlayerBoardInner({
               </div>
               <div className="cards-row cards-grid cards-grid-sm">
                 {player.graveyard.map((card) => (
-                  // Off-hand play affordance (
-                  // no-popups.md): a flashback / play-from-graveyard choice arrives with the
-                  // card's own UUID (WebProxyClient.handleGameSelect — findCardViewById
+                  // Off-hand play affordance: a flashback / play-from-graveyard choice arrives
+                  // with the card's own UUID (WebProxyClient.handleGameSelect — findCardViewById
                   // resolves graveyard cards), and playableCardIds already carries it, so
                   // the tile gets the SAME highlight + click the hand gets. Clicking calls
                   // onCardClick → GameView.handleCardClick → selectChoice — interface

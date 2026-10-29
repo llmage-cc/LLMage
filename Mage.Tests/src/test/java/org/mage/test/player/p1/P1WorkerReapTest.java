@@ -25,7 +25,7 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * F-L1 regression: the P1 plugin's out-of-process Python worker ({@link P1Worker}) must be closed
+ * Regression: the P1 plugin's out-of-process Python worker ({@link P1Worker}) must be closed
  * and unregistered from {@code P1Player.WORKERS} on EVERY terminal lifecycle hook, exactly once.
  * <p>
  * Pre-fix, {@code won}/{@code lostForced}/{@code drew} only logged a stats line and {@code lost}
@@ -211,7 +211,7 @@ public class P1WorkerReapTest {
 
     /** The two post-conditions every terminal hook must reach. */
     private static void assertReaped(Fixture fx, P1Worker worker, Process dummy) throws Exception {
-        Assert.assertFalse("worker must be unregistered from WORKERS (F-L1: no leak)",
+        Assert.assertFalse("worker must be unregistered from WORKERS (no leak)",
                 workersContains(fx.seat.getId()));
         awaitExit(dummy, 3000);
         Assert.assertFalse("worker process must be destroyed, not orphaned", dummy.isAlive());

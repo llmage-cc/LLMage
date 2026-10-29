@@ -784,8 +784,20 @@ public abstract class GameImpl implements Game {
         Permanent permanent = state.getPermanent(permanentId);
         if (permanent == null) {
             permanent = (Permanent) this.getLastKnownInformation(permanentId, Zone.BATTLEFIELD);
+        } else if (!permanent.isPhasedIn()) {
+            permanent = getPhasedOutLKI(permanent);
         }
         return permanent;
+    }
+
+    /**
+     * 702.26b A phased-out permanent is treated as though it does not exist, so effects that look for it
+     * must use its last known information, as for a permanent that is no longer on the battlefield.
+     * The information is kept on phase out until the stack is empty (see resetLKI).
+     */
+    private Permanent getPhasedOutLKI(Permanent phasedOutPermanent) {
+        MageObject object = this.getLastKnownInformation(phasedOutPermanent.getId(), Zone.BATTLEFIELD);
+        return object instanceof Permanent ? (Permanent) object : phasedOutPermanent;
     }
 
     @Override
@@ -794,6 +806,8 @@ public abstract class GameImpl implements Game {
         Permanent permanent = state.getPermanent(id);
         if (permanent == null || state.getZoneChangeCounter(id) != permanentRef.getZoneChangeCounter()) {
             permanent = (Permanent) this.getLastKnownInformation(id, Zone.BATTLEFIELD, permanentRef.getZoneChangeCounter());
+        } else if (!permanent.isPhasedIn()) {
+            permanent = getPhasedOutLKI(permanent);
         }
         return permanent;
     }
@@ -1081,6 +1095,15 @@ public abstract class GameImpl implements Game {
      */
     @Override
     public GameState restoreState(int bookmark, String context) {
+        return restoreState(bookmark, context, false);
+    }
+
+    @Override
+    public GameState restoreStateKeepingStack(int bookmark, String context) {
+        return restoreState(bookmark, context, true);
+    }
+
+    private GameState restoreState(int bookmark, String context, boolean keepStack) {
         if (!simulation && !this.hasEnded()) { // if player left or game is over no undo is possible - this could lead to wrong winner
             if (bookmark != 0) {
                 if (!hasBookmark(bookmark)) {
@@ -1102,7 +1125,7 @@ public abstract class GameImpl implements Game {
                         // did not happen), and the LLM prompt cursor is moved
                         // back via the truncation epoch.
                         state.truncateGameLog(restore.getGameLogCount());
-                        state.restore(restore);
+                        state.restore(restore, keepStack);
                         playerList.setCurrent(state.getPlayerByOrderId());
                         return state;
                     }
@@ -1726,6 +1749,10 @@ public abstract class GameImpl implements Game {
      * End game on critical error with the winner
      * Despite mtg's paper rules (MTR), we need a real winner to continue match/tourney without infinite games loop
      * Winner: highest life, then most priority time left, then random.
+     * <p>
+     * Records {@link GameEndReason#TECHNICAL_ERROR} on the state before
+     * {@link #end()}: the awarded winner must not look like a played-out win to
+     * the clients. The winner/technicalResult semantics below are unchanged.
      */
     @Override
     public void endWithTechnicalWinner(String reason) {
@@ -1780,6 +1807,15 @@ public abstract class GameImpl implements Game {
         String message = String.format("Game stopped due critical error, technical winner: %s (decided by %s). Reason: %s",
                 (winner == null ? "none" : winner.getName()), decidedBy, reason);
         logger.error(message + " - game " + getId());
+
+        // Stamp WHY the game ended before the state freezes (GameEndView reads it
+        // at END_GAME_INFO). Without this a critical error was indistinguishable
+        // from a played-out win: the client showed a plain "Victory!" for a
+        // winner picked by life/time/random. Nothing on the end() path clears
+        // it; GameImpl.leave clears a reason only for a departure that does NOT
+        // end the game, and this method awards technicalResult directly instead
+        // of leaving. Winner/technicalResult semantics are unchanged.
+        state.setEndReason(GameEndReason.TECHNICAL_ERROR);
 
         try {
             end();

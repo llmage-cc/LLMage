@@ -43,7 +43,7 @@ The vocabulary used across this wiki. Terms are grouped by subject; within each 
 | **LLM seat** | A player slot whose decisions come from a language model. Its player type is `Computer - LLM`, and the code constant is `COMPUTER_LLM`. |
 | **Player type** | The server-side class that implements a seat: human, MAD AI, MCTS AI, draft bot, or LLM. The server loads each type from a plugin jar named in its configuration. |
 | **Model** | The identifier the provider uses for the language model, for example a name with a size or variant suffix. Set per seat. |
-| **Endpoint** | The chat-completions URL the player posts to. Any OpenAI-compatible service works. |
+| **Endpoint** | The provider URL the seat posts to — chat-completions by default; the openai-responses and anthropic-messages dialects derive their own paths from it. Any OpenAI-compatible service works. |
 | **Personality** | A written character description and playstyle instruction attached to a bot name and injected into the system prompt when enabled. |
 | **Name pool** | The 100 bot names the server assigns from. Thirty-five map to a written personality, the rest to a generic one, and names are unique within a game. |
 | **Gameplan** | The short strategy the model writes after reading its decklist, before the first turn. It stays in the system prompt for the rest of the game. |

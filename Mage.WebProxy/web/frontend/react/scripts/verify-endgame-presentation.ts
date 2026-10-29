@@ -165,7 +165,7 @@ check('E2: real live eventLog (appendEvent) filters to the same clean list',
 
 // ── F. the real dialog component ──
 // FIXTURE NOTE: zustand v5 wires react-dom/server's snapshot to
-// ` => selector(api.getInitialState())` (bundled from node_modules/zustand/
+// `() => selector(api.getInitialState())` (bundled from node_modules/zustand/
 // esm/react.mjs:9). React 19.2's useSyncExternalStore takes THAT snapshot for
 // renderToStaticMarkup, so without help every leg reads the creation-time state
 // (gameEnd:null) and sees hasWon=false. The shipped browser app is a pure CSR
@@ -188,6 +188,18 @@ useGameStore.getState().setGameOver('You lost the game on turn 3.', { hasWon: fa
 const lossHtml = renderToStaticMarkup(createElement(GameEndDialog, { result: 'You lost the game on turn 3.' }))
 check('F3: loss still renders "Defeat"',
   lossHtml.includes('Defeat') && !lossHtml.includes('by forfeit'))
+
+// A win the engine awarded on a critical server/game error must name the
+// error, never "Victory!".
+useGameStore.setState({ eventLog: [] })
+useGameStore.getState().setGameOver('You won the game on turn 1.', {
+  hasWon: true, players: TWO_SEATS, endReason: 'technical_error',
+})
+const techErrHtml = renderToStaticMarkup(createElement(GameEndDialog, { result: 'You won the game on turn 1.' }))
+check('F4: technical-error result shows the server-error title + note, never Victory',
+  techErrHtml.includes('Game ended on server error')
+    && techErrHtml.includes('did not play out')
+    && !techErrHtml.includes('Victory!'))
 
 // ── G. glyph safety ──
 check('G1: WINNER_GLYPH is ASCII-only (cannot tofu)',

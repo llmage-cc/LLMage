@@ -10,7 +10,7 @@ Most changes fit one of seven extension points: an LLM provider, a personality, 
 
 | Extension | Primary location | Contract | Typical failure |
 |---|---|---|---|
-| LLM provider | `LLMConfig`, `LLMClient` | OpenAI-compatible chat completions; declared thinking dialect | HTTP 400 on an unknown field; empty answers |
+| LLM provider | `LLMConfig`, `LLMClient`, the `DialectCodec` seam | A declared API dialect (chat-completions, OpenAI Responses, Anthropic Messages) and a declared thinking dialect | HTTP 400 on an unknown field; empty answers |
 | Personality | `mage.players.Personality` | Unique name, description, playstyle | Name collision; generic bot |
 | Prompt | `LLMConfig` template or a one-shot prompt in `LLMPlayer` | Fixed headers, answer-only output | Parser or validator rejects answers |
 | Player type | `PlayerType`, `config.xml`, a plugin module | Enum description, JAR, constructor | `Unknown player type` at boot |
@@ -20,9 +20,9 @@ Most changes fit one of seven extension points: an LLM provider, a personality, 
 
 ## Adding an LLM provider
 
-Any endpoint that implements the OpenAI chat completions shape works without code changes: set the endpoint URL, model name, optional API key, and the thinking dialect in the server configuration or per-seat dialog. Ollama, vLLM, llama.cpp server, LM Studio, OpenRouter, and hosted OpenAI-compatible gateways all use this path.
+Any endpoint that implements one of the three declared API dialects works without code changes: set the endpoint URL, model name, optional API key, the API dialect, and the thinking dialect in the server configuration or per-seat dialog. Ollama, vLLM, llama.cpp server, LM Studio, OpenRouter, and hosted OpenAI-compatible gateways use the default `chat-completions` dialect; OpenAI's Responses API and Anthropic's Messages API are covered by `openai-responses` and `anthropic-messages`.
 
-The request contract is:
+The request contract of the default `chat-completions` dialect is:
 
 | Element | Expectation |
 |---|---|
@@ -38,11 +38,9 @@ Endpoint classification is a heuristic: a URL containing `ollama` or the port `1
 
 To add a provider with a genuinely different wire shape:
 
-1. Add a classification branch beside `isOllamaEndpoint`, or an explicit dialect value.
-2. Extend `LLMClient.buildRequestBodyConv` to emit the provider's body. Keep one builder and branch on the dialect; do not fork the retry or parsing code.
-3. Extend `parseResponse` only if the response shape differs. Preserve `finishReason`: the empty-answer recovery uses it to distinguish a reasoning loop from a truncated answer.
-4. Keep failure behavior fail-fast. A provider that rejects a field must produce the provider's error text, not a silent retry with the field removed.
-5. Add a unit test for the body shape and a test for the error classification. `LLMThinkingDialectTest`, `LLMConfigOpenAIDetectionTest`, and the client tests are the models to follow.
+1. Add a value to `ApiDialect` and a `DialectCodec` implementation beside `ChatCompletionsCodec`, `OpenAIResponsesCodec`, and `AnthropicMessagesCodec`, wired in `DialectCodecs.forConfig`. The codec owns the endpoint derivation, the request bodies, and the response parsing for its shape; `LLMClient` above it stays dialect-agnostic, so do not fork the retry or decision code.
+2. Keep failure behavior fail-fast. A provider that rejects a field must produce the provider's error text, not a silent retry with the field removed.
+3. Add a unit test for the body shapes and the response parsing. `LLMResponsesCodecTest`, `LLMAnthropicCodecTest`, and `LLMThinkingDialectTest` are the models to follow.
 
 Two operational details apply to browser-key seats: the browser calls the provider directly, so the provider must allow CORS or the call must go through `/llm-relay`; and the proxy only relays to hosts on its model-endpoint allow-list, configured with `-Dwebproxy.allowedModelHosts`. A provider that works from the server can still fail from the browser until its host is allow-listed.
 

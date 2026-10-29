@@ -44,9 +44,8 @@ export function PlayManaPrompt({ prompt }: { prompt: PlayManaPromptType }) {
       )}
       <div className="prompt-mana-buttons">
         {/* The label stays EXACTLY "Auto-Tap Lands" for the whole run — automated UI tests
-            locate this control by its text (skill refs: browser-ui-test-harness,
-            webui-testing-recipes). Progress is exposed as data-autotap-active instead of by
-            changing the label mid-run. */}
+            locate this control by its text. Progress is exposed as data-autotap-active
+            instead of by changing the label mid-run. */}
         <button
           className="btn btn-primary btn-sm"
           data-autotap-active={run.active ? 'true' : 'false'}

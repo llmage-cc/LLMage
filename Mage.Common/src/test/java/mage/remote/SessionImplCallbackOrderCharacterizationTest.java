@@ -35,6 +35,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * and the per-invocation sort here cannot restore a global order. If the handler is ever given a
  * global ordering guarantee, these pins must be revisited (they will fail and should be inverted
  * into positive assertions).
+ *
+ * <p><b>These pins are a deliberate contract, not scaffolding.</b> They are the tripwire for the
+ * relay-mask decision, and they stay exactly as written: the observed-order contract. If the
+ * callback path is ever given a global ordering guarantee, the pins must be inverted
+ * deliberately, as their own considered change — never weakened, skipped or "repaired"
+ * incidentally while touching something else.
  */
 public class SessionImplCallbackOrderCharacterizationTest {
 

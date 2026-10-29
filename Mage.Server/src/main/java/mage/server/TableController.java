@@ -116,6 +116,20 @@ public class TableController {
 
     private final ManagerFactory managerFactory;
     private final UUID userId; // table owner/creator (null in tourney's table)
+    /**
+     * The user whose browser owns this table's client-key LLM seats — the LLM bridge's
+     * delivery target (see {@link #getOwnerUserId()}).
+     *
+     * <p>Normally that is the table's creator ({@link #userId}). A tournament sub-table has
+     * no creator user of its own, yet its seats still belong to a browser: the one that
+     * created the tournament and pasted the per-seat keys. {@code TournamentController}
+     * passes that user here. It is deliberately kept OUT of {@link #userId} — every
+     * permission, teardown and display read of {@code userId} (isOwner →
+     * isTableOwner/removeTable RPC, the "not started yet and user is the owner" branch of
+     * {@link #leaveTable(UUID)}, controllerName) must keep treating a sub-table as
+     * ownerless, exactly as before.
+     */
+    private final UUID llmSeatOwnerUserId;
     private final UUID chatId;
     private final String controllerName;
     private final Table table;
@@ -138,9 +152,22 @@ public class TableController {
     private volatile int consecutiveDraws = 0;
 
     public TableController(ManagerFactory managerFactory, UUID roomId, UUID userId, MatchOptions options) {
+        this(managerFactory, roomId, userId, null, options);
+    }
+
+    /**
+     * @param userId              table owner/creator, or null when the table has none
+     *                            (tournament sub-table)
+     * @param llmSeatOwnerUserId  browser that owns this table's client-key LLM seats when
+     *                            the table has no creator of its own — the tournament
+     *                            creator for a tournament sub-table, else null; see
+     *                            {@link #llmSeatOwnerUserId}
+     */
+    public TableController(ManagerFactory managerFactory, UUID roomId, UUID userId, UUID llmSeatOwnerUserId, MatchOptions options) {
         this.managerFactory = managerFactory;
         this.timeoutExecutor = managerFactory.threadExecutor().getTimeoutExecutor();
         this.userId = userId;
+        this.llmSeatOwnerUserId = llmSeatOwnerUserId;
         this.options = options;
         this.match = GameFactory.instance.createMatch(options.getGameType(), options);
         if (userId != null) {
@@ -164,6 +191,7 @@ public class TableController {
         this.managerFactory = managerFactory;
         this.timeoutExecutor = managerFactory.threadExecutor().getTimeoutExecutor();
         this.userId = userId;
+        this.llmSeatOwnerUserId = null; // a tournament table always has a creator of its own
         this.options = options.getMatchOptions();
         tournament = TournamentFactory.instance.createTournament(options.getTournamentType(), options);
         if (userId != null) {
@@ -306,8 +334,15 @@ public class TableController {
 
         Optional<Player> playerOptional = createPlayer(name, seat.getPlayerType(), skill);
         if (!playerOptional.isPresent()) {
-            logger.error("joinTournament failed: createPlayer returned empty for type=" + seat.getPlayerType() + " name=" + name);
-            throw new GameException("Playertype " + seat.getPlayerType() + " could not be created.");
+            String prefix = "Playertype " + seat.getPlayerType() + " could not be created.";
+            // Same failure explanation and copy as the join path:
+            // the exception carries the bounded short form, the full text goes to the log.
+            // This call site constructs WITHOUT the seat config (overrides are applied after
+            // creation), so the endpoint named is the server default, not the seat's.
+            logger.error("joinTournament failed: createPlayer returned empty for type="
+                    + seat.getPlayerType() + " name=" + name + " — "
+                    + buildPlayerCreationFailureLogText(prefix, seat.getPlayerType(), null));
+            throw new GameException(buildPlayerCreationFailureMessage(prefix, seat.getPlayerType(), null));
         }
         Player player = playerOptional.get();
         if (!player.canJoinTable(table)) {
@@ -540,9 +575,14 @@ public class TableController {
         Optional<Player> playerOpt = createPlayer(name, seat.getPlayerType(), skill,
                 seat.getLlmPlayerConfig());
         if (!playerOpt.isPresent()) {
-            String message = "Could not create player " + name + " of type " + seat.getPlayerType();
-            logger.warn("User: " + user.getName() + " => " + message);
-            user.showUserMessage("Join Table", message);
+            // Fail fast stays: no fallback, no retry. The dialog gets the bounded short
+            // form (cause class + short reason + endpoint); the
+            // full text, historical prefix included, goes to the server log only.
+            String prefix = "Could not create player " + name + " of type " + seat.getPlayerType();
+            logPlayerCreationFailure("User: " + user.getName() + " => ", prefix,
+                    seat.getPlayerType(), seat.getLlmPlayerConfig());
+            user.showUserMessage("Join Table",
+                    buildPlayerCreationFailureMessage(prefix, seat.getPlayerType(), seat.getLlmPlayerConfig()));
             return false;
         }
 
@@ -920,6 +960,204 @@ public class TableController {
         }
     }
 
+    /**
+     * Hard ceiling for the client-visible join-failure text (the short form). The
+     * nominal shape is ~120 characters; the ceiling leaves room for a real exception
+     * class name and a real URL, and every composed message is checked against it
+     * (pinned by JoinFailureShortMessageTest).
+     */
+    static final int MAX_JOIN_FAILURE_MESSAGE_CHARS = 160;
+
+    /** Budget for the cause's short reason inside that ceiling. */
+    static final int MAX_JOIN_FAILURE_REASON_CHARS = 60;
+
+    /** Budget for the endpoint inside that ceiling. */
+    static final int MAX_JOIN_FAILURE_ENDPOINT_CHARS = 70;
+
+    /**
+     * Compose the player-creation failure shown to the user:
+     * <pre>cause: &lt;Class&gt;: &lt;short reason&gt; | endpoint: &lt;url&gt;</pre>
+     * about 120 characters, hard-capped at {@link #MAX_JOIN_FAILURE_MESSAGE_CHARS}.
+     * <p>
+     * Rationale: the previous copy inlined the WHOLE detection exception (~400 chars,
+     * endpoint often twice) into a dialog. The class plus a clipped reason still tells
+     * a user which failure it was and which endpoint to check; the full text stays in
+     * the server log via {@link #buildPlayerCreationFailureLogText} — nothing is lost,
+     * it just stops filling the dialog.
+     * <p>
+     * Diagnostics only: the caller still fails fast, no fallback or retry.
+     * Package-private and static so a unit test can assert the composed text without
+     * wiring a TableController.
+     *
+     * @param prefix     the historical text, used verbatim only when there is nothing
+     *                   to explain (no cause captured and no endpoint to name)
+     * @param playerType seat type being created (decides the "server default" hint)
+     * @param seatConfig the seat's LLM config, null for non-LLM or unconfigured seats
+     */
+    static String buildPlayerCreationFailureMessage(String prefix, PlayerType playerType,
+            mage.players.LLMPlayerConfig seatConfig) {
+        String cause = PlayerFactory.getLastCreationFailure();
+        String endpoint = endpointForSeat(playerType, seatConfig);
+        boolean nothingToReport = (cause == null || cause.trim().isEmpty()) && endpoint == null;
+        if (nothingToReport) {
+            return prefix;
+        }
+        return composeShortJoinFailure(cause, endpoint);
+    }
+
+    /**
+     * The FULL creation-failure text for the server log — the historical prefix, the
+     * complete cause (class plus the entire message) and the endpoint. This is the
+     * text the dialog used to carry and is now log-only.
+     */
+    static String buildPlayerCreationFailureLogText(String prefix, PlayerType playerType,
+            mage.players.LLMPlayerConfig seatConfig) {
+        String cause = PlayerFactory.getLastCreationFailure();
+        String endpoint = endpointForSeat(playerType, seatConfig);
+        StringBuilder message = new StringBuilder(prefix);
+        if (cause != null && !cause.isEmpty()) {
+            message.append(" (cause: ").append(cause);
+            if (endpoint != null) {
+                message.append("; endpoint: ").append(endpoint);
+            }
+            message.append(')');
+        } else if (endpoint != null) {
+            message.append(" (endpoint: ").append(endpoint).append(')');
+        }
+        return message.toString();
+    }
+
+    /**
+     * Log the full creation-failure text for the Join Table path. The dialog only gets
+     * the bounded short form, so this line is the one place the untruncated cause
+     * survives.
+     */
+    static void logPlayerCreationFailure(String logPrefix, String failurePrefix, PlayerType playerType,
+            mage.players.LLMPlayerConfig seatConfig) {
+        logger.warn(logPrefix + buildPlayerCreationFailureLogText(failurePrefix, playerType, seatConfig));
+    }
+
+    /**
+     * The endpoint the seat would have used, or null for a non-LLM seat with no
+     * per-seat endpoint. An LLM seat without a per-seat endpoint dialled the server
+     * default, so that literal is named rather than leaving the user with no URL.
+     */
+    private static String endpointForSeat(PlayerType playerType, mage.players.LLMPlayerConfig seatConfig) {
+        if (seatConfig != null && seatConfig.getApiEndpoint() != null
+                && !seatConfig.getApiEndpoint().trim().isEmpty()) {
+            return seatConfig.getApiEndpoint().trim();
+        }
+        if (playerType == PlayerType.COMPUTER_LLM) {
+            return "server default";
+        }
+        return null;
+    }
+
+    /** Compose {@code cause: <Class>: <reason> | endpoint: <url>} inside the hard cap. */
+    private static String composeShortJoinFailure(String cause, String endpoint) {
+        String reason = collapseWhitespace(causeReason(cause));
+        String causeClass = causeClass(cause);
+        if (causeClass == null && reason.isEmpty()) {
+            // Endpoint-only failure (an LLM seat with no captured cause): still name the
+            // missing half so the shape stays parseable instead of "cause:  | endpoint:".
+            causeClass = "unknown";
+        }
+        String clippedEndpoint = clip(endpoint, MAX_JOIN_FAILURE_ENDPOINT_CHARS);
+        int reasonBudget = Math.min(reason.length(), MAX_JOIN_FAILURE_REASON_CHARS);
+        String message = joinFailureParts(causeClass, reason, reasonBudget, clippedEndpoint);
+        if (message.length() > MAX_JOIN_FAILURE_MESSAGE_CHARS) {
+            // Give the reason's budget up first: the class and the endpoint are the
+            // two things a user acts on.
+            int overflow = message.length() - MAX_JOIN_FAILURE_MESSAGE_CHARS;
+            message = joinFailureParts(causeClass, reason,
+                    Math.max(0, reasonBudget - overflow), clippedEndpoint);
+        }
+        if (message.length() > MAX_JOIN_FAILURE_MESSAGE_CHARS) {
+            // Only reachable with an absurd class name AND a long URL: shorten the
+            // endpoint, never the class.
+            int overflow = message.length() - MAX_JOIN_FAILURE_MESSAGE_CHARS;
+            message = joinFailureParts(causeClass, reason, 0,
+                    clip(clippedEndpoint, Math.max(0, clippedEndpoint.length() - overflow)));
+        }
+        if (message.length() > MAX_JOIN_FAILURE_MESSAGE_CHARS) {
+            // Belt and braces: the cap is enforced in code, so no caller can widen it.
+            message = message.substring(0, MAX_JOIN_FAILURE_MESSAGE_CHARS - 3) + "...";
+        }
+        return message;
+    }
+
+    private static String joinFailureParts(String causeClass, String reason, int reasonBudget,
+            String endpoint) {
+        StringBuilder message = new StringBuilder("cause: ");
+        if (causeClass == null) {
+            message.append(clip(reason, reasonBudget));
+        } else {
+            message.append(causeClass);
+            String clippedReason = clip(reason, Math.min(reasonBudget, MAX_JOIN_FAILURE_REASON_CHARS));
+            if (!clippedReason.isEmpty()) {
+                message.append(": ").append(clippedReason);
+            }
+        }
+        if (endpoint != null) {
+            message.append(" | endpoint: ").append(endpoint);
+        }
+        return message.toString();
+    }
+
+    /**
+     * Simple class name of a captured "{@code <fqcn>: <message>}" cause, or null when
+     * the cause carries no class at all ("no player class registered for type X").
+     */
+    private static String causeClass(String cause) {
+        if (cause == null) {
+            return null;
+        }
+        String text = collapseWhitespace(cause);
+        int separator = text.indexOf(": ");
+        if (separator <= 0) {
+            return null;
+        }
+        String head = text.substring(0, separator).trim();
+        int lastDot = head.lastIndexOf('.');
+        String simple = lastDot >= 0 ? head.substring(lastDot + 1) : head;
+        return simple.isEmpty() ? null : simple;
+    }
+
+    /** The reason half of a captured cause ("" when it carries none). */
+    private static String causeReason(String cause) {
+        if (cause == null) {
+            return "";
+        }
+        String text = collapseWhitespace(cause);
+        int separator = text.indexOf(": ");
+        if (separator > 0) {
+            return text.substring(separator + 2);
+        }
+        return text;
+    }
+
+    /** One line, single spaces: the detection message is multi-line and indented. */
+    private static String collapseWhitespace(String text) {
+        return text == null ? "" : text.replaceAll("\\s+", " ").trim();
+    }
+
+    /**
+     * Clip to at most {@code max} characters, marking the cut with "...". Returns ""
+     * for a non-positive budget, so "drop the reason" is expressible.
+     */
+    static String clip(String text, int max) {
+        if (text == null || text.isEmpty() || max <= 0) {
+            return "";
+        }
+        if (text.length() <= max) {
+            return text;
+        }
+        if (max <= 3) {
+            return text.substring(0, max);
+        }
+        return text.substring(0, max - 3) + "...";
+    }
+
     public Optional<Player> createPlayer(String name, PlayerType playerType, int skill) {
         return createPlayer(name, playerType, skill, null);
     }
@@ -1168,7 +1406,9 @@ public class TableController {
                     table.setState(TableState.STARTING);
                 }
                 tournament.setStartTime();
-                managerFactory.tournamentManager().createTournamentSession(tournament, userPlayerMap, table.getId());
+                // this.userId == userId here (the gate above): the browser that created the
+                // tournament owns its client-key LLM seats, so every sub-table routes to it.
+                managerFactory.tournamentManager().createTournamentSession(tournament, userPlayerMap, table.getId(), this.userId);
                 for (Entry<UUID, UUID> entry : userPlayerMap.entrySet()) {
                     managerFactory.userManager().getUser(entry.getKey()).ifPresent(user -> {
                         logger.info(new StringBuilder("User ").append(user.getName()).append(" tournament started: ").append(tournament.getId()).append(" userId: ").append(user.getId()));
@@ -1472,6 +1712,19 @@ public class TableController {
         return userId.equals(this.userId);
     }
 
+    /**
+     * The creating session's user id, or null when the table has no creator of its own
+     * (tournament sub-table, anonymous table).
+     *
+     * <p>The raw PERMISSION identity, unlike {@link #getOwnerUserId()}, which falls back to the
+     * LLM-seat owner and is not a permission accessor. Needed by the deletion rule in
+     * {@code TableManagerImpl} to tell "no creator to match" apart from "a creator with a name",
+     * so that a sub-table's {@code System} display name can never authorize a delete.
+     */
+    public UUID getCreatorUserId() {
+        return userId;
+    }
+
     public Table getTable() {
         return table;
     }
@@ -1522,12 +1775,19 @@ public class TableController {
     }
 
     /**
-     * Table owner/creator (null for tournament sub-tables). This is the user
-     * whose browser created the table — the browser that holds per-seat user
-     * API keys for client-key LLM seats (LLMClientTransport routing).
+     * Table owner/creator — the user whose browser created the table, also the browser that
+     * holds per-seat user API keys for client-key LLM seats (LLMClientTransport routing).
+     *
+     * <p>A tournament sub-table has no creator user of its own, so it answers with the
+     * tournament's creator instead (see {@link #llmSeatOwnerUserId}): that is the browser
+     * that configured the seats. Null only when neither identity exists —
+     * the honest "No browser session for LLM seat …" failure.
+     *
+     * <p>NOT a permission accessor: {@link #isOwner(UUID)} stays false for every tournament
+     * sub-table, so teardown and the owner-only RPCs are unchanged.
      */
     public UUID getOwnerUserId() {
-        return userId;
+        return userId != null ? userId : llmSeatOwnerUserId;
     }
 
     public boolean isUserStillActive(UUID userId) {

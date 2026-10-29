@@ -427,6 +427,15 @@ public class BotGameHandler {
         // Conversation memory limits (both LLMs, with per-LLM override)
         String prefix = isSecondLlm ? "xmage.llm2." : "xmage.llm.";
         String fallbackPrefix = isSecondLlm ? "xmage.llm." : null;
+
+        // Provider API dialect (frontier Phase 2): per-seat property, second seat
+        // falls back to the first seat's value like every other cascade field here.
+        String apiDialect = System.getProperty(prefix + "api_dialect");
+        if (apiDialect == null && fallbackPrefix != null)
+            apiDialect = System.getProperty(fallbackPrefix + "api_dialect");
+        if (apiDialect != null && !apiDialect.isEmpty())
+            setConfigField(config, "apiDialect", apiDialect);
+
         String exchanges = System.getProperty(prefix + "conversation_max_exchanges");
         if (exchanges == null && fallbackPrefix != null)
             exchanges = System.getProperty(fallbackPrefix + "conversation_max_exchanges");

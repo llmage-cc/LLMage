@@ -1023,6 +1023,8 @@ public class VerifyCardDataTest {
         ignoreBoosterSets.add("Mystery Booster Commander Edition"); // temporary - not enough info to collate and draft yet
         ignoreBoosterSets.add("The Zeta Set"); // Secret Lair adjacent, not draftable
         ignoreBoosterSets.add("Reality Fracture"); // newly added set, pending MTGJson updates
+        // foreign language reprint set, no implementation planned
+        ignoreBoosterSets.add("Chronicles Foreign Black Border"); // BCHR, booster data only, since MTGJson 2026-10-26
     }
 
     @Test
@@ -1212,6 +1214,14 @@ public class VerifyCardDataTest {
                 if (jsonSet.code.equals("OM1")) {
                     // TODO: Determine how to model this set, if at all.
                     // Wizards released this in lieu of SPM due to licensing issues. Almost mechannically identical, but with unique card names/art.
+                    return;
+                }
+                if (ignoreBoosterSets.contains(jsonSet.name)) {
+                    // sets with ignored boosters can't be reported as missing, see ignoreBoosterSets
+                    return;
+                }
+                if (jsonSet.code.equals("BCHR")) {
+                    // Skip for now, not a real draft set over Chronicles
                     return;
                 }
                 // how-to fix: it's miss promo sets with boosters, so just add/generate it in most use cases

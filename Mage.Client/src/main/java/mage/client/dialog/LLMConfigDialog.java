@@ -33,6 +33,8 @@ public class LLMConfigDialog extends MageDialog {
     private JComboBox<String> cbModel;          // editable combo box — type or select
     private JTextField txtApiEndpoint;
     private JTextField txtApiKey;
+    /** Provider API dialect: "(server default)" / chat-completions / openai-responses / anthropic-messages. */
+    private JComboBox<String> cbApiDialect;
     private JComboBox<String> cbReasoningEffort;
     private JCheckBox chkThinkingEnabled;
     private JCheckBox chkTemperatureEnabled;
@@ -110,6 +112,14 @@ public class LLMConfigDialog extends MageDialog {
 
         addField(corePanel, gbc, row++, "API Endpoint:", txtApiEndpoint = new JTextField(30));
         addField(corePanel, gbc, row++, "API Key:", txtApiKey = new JTextField(20));
+
+        cbApiDialect = new JComboBox<>(new String[]{
+                "(server default)", "chat-completions", "openai-responses", "anthropic-messages"});
+        cbApiDialect.setToolTipText("Provider wire dialect. chat-completions = the historical /v1/chat/completions "
+                + "shape (default); openai-responses = /v1/responses (reasoning summaries); "
+                + "anthropic-messages = /v1/messages (native Claude; max_tokens must exceed the thinking budget). "
+                + "The endpoint above may stay the chat-completions URL — the dialect derives its own path.");
+        addField(corePanel, gbc, row++, "API Dialect:", cbApiDialect);
 
         cbReasoningEffort = new JComboBox<>(new String[]{"default", "low", "medium", "high", "max"});
         addField(corePanel, gbc, row++, "Reasoning Effort:", cbReasoningEffort);
@@ -312,10 +322,19 @@ public class LLMConfigDialog extends MageDialog {
     private static List<String> fetchModelsFromEndpoint(String endpoint, String apiKey) {
         List<String> models = new ArrayList<>();
         try {
-            // Derive base URL from the chat completions endpoint
+            // Derive base URL from the chat-completions endpoint. Dialect
+            // endpoints (/v1/responses, /v1/messages) derive the same base — the
+            // model list is still /v1/models with Bearer auth on OpenAI-shaped
+            // providers (Anthropic's native list is not used by this dialog).
             String baseUrl = endpoint;
             if (baseUrl.endsWith("/v1/chat/completions")) {
                 baseUrl = baseUrl.substring(0, baseUrl.length() - "/v1/chat/completions".length());
+            } else if (baseUrl.endsWith("/v1/responses")) {
+                baseUrl = baseUrl.substring(0, baseUrl.length() - "/v1/responses".length());
+            } else if (baseUrl.endsWith("/v1/messages")) {
+                baseUrl = baseUrl.substring(0, baseUrl.length() - "/v1/messages".length());
+            } else if (baseUrl.endsWith("/messages")) {
+                baseUrl = baseUrl.substring(0, baseUrl.length() - "/messages".length());
             } else if (baseUrl.endsWith("/v1")) {
                 baseUrl = baseUrl.substring(0, baseUrl.length() - "/v1".length());
             } else {
@@ -439,6 +458,7 @@ public class LLMConfigDialog extends MageDialog {
         else txtApiEndpoint.setText("");
         if (config.getApiKey() != null) txtApiKey.setText(config.getApiKey());
         else txtApiKey.setText("");
+        cbApiDialect.setSelectedItem(config.getApiDialect() != null ? config.getApiDialect() : "(server default)");
         cbReasoningEffort.setSelectedItem(config.getReasoningEffort() != null ? config.getReasoningEffort() : "default");
         chkThinkingEnabled.setSelected(config.isThinkingEnabled() != null ? config.isThinkingEnabled() : true);
         boolean tempEnabled = config.getTemperatureEnabled() != null ? config.getTemperatureEnabled() : false;
@@ -481,6 +501,8 @@ public class LLMConfigDialog extends MageDialog {
         c.setModel(emptyToNull((String) cbModel.getSelectedItem()));
         c.setApiEndpoint(emptyToNull(txtApiEndpoint.getText()));
         c.setApiKey(emptyToNull(txtApiKey.getText()));
+        String selDialect = (String) cbApiDialect.getSelectedItem();
+        c.setApiDialect("(server default)".equals(selDialect) ? null : selDialect);
         String re = (String) cbReasoningEffort.getSelectedItem();
         c.setReasoningEffort("default".equals(re) ? null : re);
         c.setThinkingEnabled(chkThinkingEnabled.isSelected());

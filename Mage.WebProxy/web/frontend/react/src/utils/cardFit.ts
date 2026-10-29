@@ -1,6 +1,6 @@
 /**
- * Battlefield auto-fit card sizing (item 4: "Scaling for the battlefield is
- * awful, you have to scroll to see anything").
+ * Battlefield auto-fit card sizing: scaling for the battlefield is otherwise
+ * awful, you have to scroll to see anything.
  *
  * Two sizing modes share this module:
  *

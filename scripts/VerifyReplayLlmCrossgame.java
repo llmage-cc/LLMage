@@ -78,6 +78,13 @@ import java.util.UUID;
  *      the direction flip is never family). Asserts the walker DETECTS all of
  *      them. Proves the harness discriminates (non-vacuity).
  *
+ *  [4] pregame-fixture — writes the committed save that carries the 2026-09-30
+ *      pre-game record shape (deck assessment enabled, so
+ *      LLMPlayer.recordReplayPreamble emits stateIndex-0 / phaseStep "pre-game"
+ *      records) and asserts the walk skips them. The committed artifact is
+ *      walked by the wrapper with `--require-pregame`, which fails if nothing
+ *      was skipped — see `scripts/fixtures/replay-pregame.game`.
+ *
  * Known adjacent family, now ASSERTED: prompts issued from
  * Step.beginStep() BEFORE the engine's next saveState are recorded one frame
  * early. The measured family on this tree is exactly the cleanup-step discard
@@ -98,6 +105,16 @@ import java.util.UUID;
  * no record is hidden. The assertion pins attachability (idx in range) and the
  * same-turn binding (never spanning a game/turn boundary).
  *
+ * Pre-game records are NOT in-game exchanges and have no frame to bind to:
+ * LLMPlayer.recordReplayPreamble (2026-09-30) writes the deck assessment and
+ * the game-2+ carried revised strategy into the stateIndex-0 bucket with
+ * phaseStep "pre-game" before any frame describes them. The walk SKIPS those
+ * records, but asserts their exact shape (preGame flag set, phaseStep
+ * "pre-game", stateIndex 0): a record that only claims to be pre-game — or a
+ * pre-game marker at any other index — fails as `pre_game_unexpected` instead
+ * of being skipped. `walk --require-pregame` additionally fails when the walk
+ * skipped no pre-game record, so the skip cannot go vacuous unnoticed.
+ *
  * Exit codes: 0 = all checks pass; 1 = a check failed; 2 = usage error.
  */
 public final class VerifyReplayLlmCrossgame {
@@ -110,13 +127,17 @@ public final class VerifyReplayLlmCrossgame {
     /** frameStep() text of the cleanup-step frame the family record describes. */
     private static final String CLEANUP_FRAME = "End / cleanup step";
 
+    /** phaseStep text of a pre-game record (LLMPlayer.recordReplayPreamble). */
+    private static final String PRE_GAME_STEP = "pre-game";
+
     private static int failures = 0;
 
     public static void main(String[] args) throws Exception {
         if (args.length < 1) {
             System.err.println("usage: VerifyReplayLlmCrossgame manufacture <workDir> [games=3] [turns=12,2,2]");
-            System.err.println("       VerifyReplayLlmCrossgame walk <dirOrFile>...");
+            System.err.println("       VerifyReplayLlmCrossgame walk [--require-pregame] <dirOrFile>...");
             System.err.println("       VerifyReplayLlmCrossgame selftest <workDir>");
+            System.err.println("       VerifyReplayLlmCrossgame pregame-fixture <file.game>");
             System.exit(2);
         }
         switch (args[0]) {
@@ -129,20 +150,32 @@ public final class VerifyReplayLlmCrossgame {
                 break;
             }
             case "walk": {
-                int[] tally = new int[6]; // files, llmFiles, records, stale, misboundTrue, loadFail
+                // 0 files, 1 llmFiles, 2 records, 3 stale, 4 misbound, 5 loadFail,
+                // 6 preGame(skipped), 7 preGameUnexpected
+                int[] tally = new int[8];
                 int[] family = new int[3]; // misboundPreSave, tail, preSaveUnexpected
                 boolean[] anyFail = {false};
-                for (int i = 1; i < args.length; i++) {
+                int start = 1;
+                boolean requirePreGame = args.length > 1 && "--require-pregame".equals(args[1]);
+                if (requirePreGame) start = 2;
+                for (int i = start; i < args.length; i++) {
                     walkPath(Paths.get(args[i]), tally, family, anyFail);
                 }
                 System.out.println();
                 System.out.printf("WALK TOTAL: files=%d llmFiles=%d records=%d stale(+-%d)=%d"
-                                + " misbound=%d misbound_pre_save=%d pre_save_unexpected=%d tail=%d loadFail=%d%n",
+                                + " misbound=%d misbound_pre_save=%d pre_save_unexpected=%d tail=%d loadFail=%d"
+                                + " pre_game_skipped=%d pre_game_unexpected=%d%n",
                         tally[0], tally[1], tally[2], RANGE_TOL, tally[3],
-                        tally[4], family[0], family[2], family[1], tally[5]);
-                if (tally[5] > 0 || tally[3] > 0 || tally[4] > 0 || family[2] > 0) anyFail[0] = true;
+                        tally[4], family[0], family[2], family[1], tally[5], tally[6], tally[7]);
+                if (tally[5] > 0 || tally[3] > 0 || tally[4] > 0 || family[2] > 0 || tally[7] > 0) {
+                    anyFail[0] = true;
+                }
                 if (tally[1] == 0) {
                     System.out.println("FAIL: no LLM-bearing artifacts found to check");
+                    anyFail[0] = true;
+                }
+                if (requirePreGame && tally[6] == 0) {
+                    System.out.println("FAIL: --require-pregame given but the walk skipped no pre-game record");
                     anyFail[0] = true;
                 }
                 if (anyFail[0]) failures++;
@@ -150,6 +183,10 @@ public final class VerifyReplayLlmCrossgame {
             }
             case "selftest": {
                 selftest(Paths.get(args[1]));
+                break;
+            }
+            case "pregame-fixture": {
+                pregameFixture(Paths.get(args[1]));
                 break;
             }
             default:
@@ -241,7 +278,7 @@ public final class VerifyReplayLlmCrossgame {
         // ---- reload every artifact through the production load path ----
         System.out.println();
         System.out.println("--- reloaded artifacts (production load path) ---");
-        int[] tally = new int[6];
+        int[] tally = new int[8];
         int[] family = new int[3];
         boolean[] anyFail = {false};
         for (UUID id : gameIds) {
@@ -328,17 +365,87 @@ public final class VerifyReplayLlmCrossgame {
         }
     }
 
+    // ==================================================================
+    //  [4] pregame-fixture — write the post-2026-09-30 pre-game record shape
+    // ==================================================================
+
+    /**
+     * Write one save that carries the 2026-09-30 pre-game record shape through
+     * the production path: deck assessment is enabled on both stub players, so
+     * LLMPlayer.recordReplayPreamble emits a stateIndex-0 record with
+     * phaseStep "pre-game" and preGame=true during the mulligan phase. This is
+     * the artifact the corpus walk pins the pre-game skip against
+     * (scripts/fixtures/replay-pregame.game); regenerate it
+     * with the same command whenever the engine changes the shape.
+     */
+    private static void pregameFixture(Path file) throws Exception {
+        DataCollectorServices.init(false, false);
+
+        MatchOptions opts = new MatchOptions("u14-pregame-fixture", "Two Player Duel", false);
+        opts.setWinsNeeded(1);
+        opts.getPlayerTypes().add(PlayerType.COMPUTER_LLM);
+        opts.getPlayerTypes().add(PlayerType.COMPUTER_LLM);
+        TwoPlayerMatch match = new TwoPlayerMatch(opts);
+        match.setTableId(UUID.randomUUID());
+        TaggedPlayer a = new TaggedPlayer("FixtureA", true);
+        TaggedPlayer b = new TaggedPlayer("FixtureB", true);
+        match.addPlayer(a, forestDeck("A"));
+        match.addPlayer(b, forestDeck("B"));
+        match.startMatch();
+        match.startGame();
+        Game game = match.getGame();
+        game.setSaveGame(true); // replay mode (production: configSettings.isSaveGameActivated())
+        GameOptions go = new GameOptions();
+        go.stopOnTurn = 2;
+        go.stopAtStep = PhaseStep.UNTAP;
+        game.setGameOptions(go);
+        TaggedPlayer.gameTag = "fixture"; // stub tag: records are recognizably fixture-written
+        game.start(a.getId());
+        TaggedPlayer.gameTag = null;
+
+        Path target = file.toAbsolutePath();
+        Files.createDirectories(target.getParent());
+        saveArtifactTo(game, target);
+
+        int preGameRecords = 0;
+        for (Player p : game.getPlayers().values()) {
+            if (!(p instanceof LLMPlayer)) continue;
+            for (List<LLMExchangeRecord> l : ((LLMPlayer) p).getReplayLLMData().values()) {
+                for (LLMExchangeRecord r : l) {
+                    if (r.preGame) preGameRecords++;
+                }
+            }
+        }
+        System.out.printf("fixture written: %s frames=%d preGame records=%d%n",
+                target, game.getGameStates().getSize(), preGameRecords);
+        check("fixture: save carries a stateIndex-0 pre-game record", preGameRecords > 0,
+                "preGame records=0 — deck assessment path did not run");
+
+        int[] tally = new int[8];
+        int[] family = new int[3];
+        boolean[] anyFail = {false};
+        walkFile(target, tally, family, anyFail);
+        check("fixture walk: every pre-game record was skipped", tally[6] == preGameRecords,
+                "skipped=" + tally[6] + " preGame=" + preGameRecords);
+        check("fixture walk: no stale/misbound/unexpected record", !anyFail[0],
+                "walk reported a failure");
+    }
+
     private static class TaggedPlayer extends LLMPlayer {
         /** Tag the stub stamps into `thinking` so per-game record provenance is exact. */
         static volatile String gameTag = null;
 
         TaggedPlayer(String name) {
+            this(name, false);
+        }
+
+        TaggedPlayer(String name, boolean deckAssessmentEnabled) {
             super(name, RangeOfInfluence.ONE, 0);
             this.client = new TaggedStubClient(getLLMConfig());
             getLLMConfig().modelContextWindow(131072); // explicit: no network detection, ever
             getLLMConfig().apiEndpoint("http://127.0.0.1:9/v1/chat/completions")
                     .model("verify-stub-model").maxTokens(4096).timeoutSeconds(5)
-                    .deckAssessmentEnabled(false).verboseLogging(false);
+                    .deckAssessmentEnabled(deckAssessmentEnabled).verboseLogging(false);
         }
 
         @Override
@@ -396,7 +503,11 @@ public final class VerifyReplayLlmCrossgame {
 
     /** Mirror of GameController.saveGame's serialization block (zstd replay container). */
     private static void saveArtifact(Game game, Path savedDir) throws Exception {
-        Path file = savedDir.resolve(game.getId().toString() + ".game");
+        saveArtifactTo(game, savedDir.resolve(game.getId().toString() + ".game"));
+    }
+
+    /** Same serialization block, written to an explicit path. */
+    private static void saveArtifactTo(Game game, Path file) throws Exception {
         try (OutputStream fileStream = new FileOutputStream(file.toFile());
              OutputStream buffer = new BufferedOutputStream(fileStream);
              ObjectOutput output = new ObjectOutputStream(mage.server.game.ReplayCodec.wrapForWrite(buffer))) {
@@ -477,6 +588,7 @@ public final class VerifyReplayLlmCrossgame {
         int frames = game.getGameStates().getSize();
         int records = 0, stale = 0, misbound = 0;
         int familyRecords = 0, familyUnexpected = 0;
+        int preGame = 0, preGameUnexpected = 0;
         List<String> samples = new ArrayList<>();
         for (Player p : game.getPlayers().values()) {
             if (!(p instanceof LLMPlayer)) continue;
@@ -485,6 +597,26 @@ public final class VerifyReplayLlmCrossgame {
                 int idx = e.getKey();
                 for (LLMExchangeRecord r : e.getValue()) {
                     records++;
+                    // Pre-game sections (deck assessment, carried revised strategy)
+                    // are written at stateIndex 0 with phaseStep "pre-game" before
+                    // any frame describes them: no frame can bind them, so they are
+                    // skipped. The shape is asserted rather than trusted — a record
+                    // that merely claims to be pre-game, or a pre-game marker at any
+                    // other index, is a defect and fails as pre_game_unexpected.
+                    if (r.preGame || PRE_GAME_STEP.equals(r.phaseStep)) {
+                        if (r.preGame && PRE_GAME_STEP.equals(r.phaseStep) && idx == 0) {
+                            preGame++;
+                            tally[6]++;
+                            continue;
+                        }
+                        preGameUnexpected++;
+                        tally[7]++;
+                        anyFail[0] = true;
+                        if (samples.size() < 6) samples.add("pre_game_unexpected idx=" + idx
+                                + " record=" + r.turnNum + " " + r.phaseStep
+                                + " preGame=" + r.preGame + " " + r.promptType);
+                        continue;
+                    }
                     if (idx < 0 || idx >= frames + RANGE_TOL) {
                         // The staleness definition: no frame within +-5.
                         stale++;
@@ -551,12 +683,13 @@ public final class VerifyReplayLlmCrossgame {
         family[2] += familyUnexpected;
         tally[2] += records;
         tally[3] += stale;
-        boolean ok = stale == 0 && misbound == 0 && familyUnexpected == 0;
+        boolean ok = stale == 0 && misbound == 0 && familyUnexpected == 0 && preGameUnexpected == 0;
         if (!ok) anyFail[0] = true;
         System.out.printf("%s %s frames=%d records=%d stale(+-%d)=%d misbound=%d"
-                        + " misbound_pre_save=%d pre_save_unexpected=%d%n",
+                        + " misbound_pre_save=%d pre_save_unexpected=%d pre_game_skipped=%d"
+                        + " pre_game_unexpected=%d%n",
                 ok ? "PASS" : "FAIL", label, frames, records, RANGE_TOL, stale, misbound,
-                familyRecords, familyUnexpected);
+                familyRecords, familyUnexpected, preGame, preGameUnexpected);
         for (String s : samples) System.out.println("      " + s);
     }
 
@@ -717,7 +850,7 @@ public final class VerifyReplayLlmCrossgame {
                 + " wrong-shape pre-save(idx=" + famIdx + " -> next frame '"
                 + frameStep(nextFrame) + "'), late-bound(idx=" + lateIdx + " -> prev frame '"
                 + frameStep(prevFrame) + "')");
-        int[] tally = new int[6];
+        int[] tally = new int[8];
         int[] family = new int[3];
         boolean[] anyFail = {false};
         walkFile(dirty, tally, family, anyFail);

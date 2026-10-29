@@ -59,6 +59,13 @@ public class LLMConfig implements java.io.Serializable {
     // zen/go 2026-09-26, glm-5.3-flash). "budget" mode always emits the object —
     // that dialect is object-based by definition.
     private String thinkingDialect = "effort";
+    // Wire dialect of the provider HTTP API (Phase 2). Selects the internal
+    // DialectCodec: request shape, response parse and SSE events all follow it.
+    //   "chat-completions"    → {base}/v1/chat/completions (historical default)
+    //   "openai-responses"    → {base}/v1/responses
+    //   "anthropic-messages"  → {base}/v1/messages
+    // An unknown value throws (Fail Fast) — no silent default on a typo.
+    private String apiDialect = "chat-completions";
     // Budget ladder (tokens) for dialect="budget". Highest first, same ladder
     // semantics as reasoningEffortLevels: attempt 1 uses the first entry,
     // empty-answer retries descend. Configurable via xmage.llm.thinking_budget_tokens.
@@ -229,6 +236,7 @@ public class LLMConfig implements java.io.Serializable {
         this.timeoutSeconds = other.timeoutSeconds;
         this.reasoningEffort = other.reasoningEffort;
         this.thinkingDialect = other.thinkingDialect;
+        this.apiDialect = other.apiDialect;
         this.thinkingBudgetTokens = other.thinkingBudgetTokens == null
                 ? null : new ArrayList<>(other.thinkingBudgetTokens);
         this.thinkingMaxTokens = other.thinkingMaxTokens;
@@ -301,11 +309,31 @@ public class LLMConfig implements java.io.Serializable {
     public LLMConfig reasoningEffort(String v) { this.reasoningEffort = v; return this; }
 
     public String getThinkingDialect() { return thinkingDialect; }
+
     public LLMConfig thinkingDialect(String v) {
         if (!"effort".equals(v) && !"budget".equals(v)) {
             throw new IllegalArgumentException("thinkingDialect must be 'effort' or 'budget', got: '" + v + "'");
         }
         this.thinkingDialect = v; return this;
+    }
+
+    /**
+     * Effective provider dialect. A null field means "absent from an older
+     * .game replay" (Java deserialization bypasses field initializers), which
+     * historically ran chat-completions — normalised here, never for a
+     * configured value: {@link #apiDialect(String)} still rejects unknown
+     * strings and null input with the canonical valid-value list.
+     */
+    public String getApiDialect() { return apiDialect != null ? apiDialect : ApiDialect.CHAT_COMPLETIONS.wireName(); }
+
+    /**
+     * Select the provider API dialect. Unknown values throw here — and again in
+     * DialectCodecs.forConfig — so a typo fails at seat construction, never as
+     * a silent fall back to chat-completions mid-game.
+     */
+    public LLMConfig apiDialect(String v) {
+        this.apiDialect = ApiDialect.fromWire(v).wireName();
+        return this;
     }
 
     public List<Integer> getThinkingBudgetTokens() { return thinkingBudgetTokens; }

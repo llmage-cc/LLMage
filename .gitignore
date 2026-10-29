@@ -93,10 +93,6 @@ gamelogsJson/
 # Mage.Server/release/server.msg.txt is tracked
 /server.msg.txt
 
-# Local TODO tracking (not committed)
-TODO.md
-WEB-CLIENT-RESEARCH.md
-
 # Stray compiled class files in root (javac without -d). Match only .class
 # files so the rule cannot fold onto the Mage/ source tree on the
 # case-insensitive filesystems macOS and Windows use.

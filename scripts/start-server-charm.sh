@@ -65,12 +65,12 @@ export LLM2_MODEL="$MODEL" LLM2_ENDPOINT="$ENDPOINT" LLM2_KEY="$LLM_KEY" LLM2_EF
 #   P1_PYTHON       venv interpreter with torch + safetensors (the net is not an LLM)
 #   P1_PKG_DIR      cwd for `-m argentum_ml.p1.serve` (the dir CONTAINING argentum_ml/)
 #   P1_CHECKPOINT   checkpoint directory (the model weights)
-# The runtime lives beside the repo (<repo-parent>/argentum-p1-runtime, ~1.4 GB)
-# and is NOT part of the repo — resolved here exactly like the key files above.
+# The runtime lives in the workspace ignore/ dir (<repo-parent>/ignore/argentum-p1-runtime,
+# ~1.4 GB) and is NOT part of the repo — resolved here exactly like the key files above.
 # Unset, P1Worker falls back to a pruned scratch path, so a COMPUTER_P1 seat
 # would fail at createPlayer. No secret here (paths only); override any of the
 # three from the environment if the runtime moves.
-P1_RUNTIME_DIR="${P1_RUNTIME_DIR:-$HERE/../../argentum-p1-runtime}"
+P1_RUNTIME_DIR="${P1_RUNTIME_DIR:-$HERE/../../ignore/argentum-p1-runtime}"
 export P1_PYTHON="${P1_PYTHON:-$P1_RUNTIME_DIR/venv/bin/python}"
 export P1_PKG_DIR="${P1_PKG_DIR:-$P1_RUNTIME_DIR/pkg/ml/src}"
 export P1_CHECKPOINT="${P1_CHECKPOINT:-$P1_RUNTIME_DIR/ckpt-0016}"

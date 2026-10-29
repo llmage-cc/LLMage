@@ -13,7 +13,7 @@
 #                                    Default: this checkout's release jar.
 #
 # Cards DB: warmed copy at /tmp/reflection-db/cards.h2.mv.db, seeded from
-# /tmp/ainames-db/cards.h2.mv.db; the first boot after a fresh build may rescan
+# /tmp/xmage-cards-db/cards.h2.mv.db; the first boot after a fresh build may rescan
 # the card table (~40s; wait window 180s, verify >= 90000 cards).
 set -uo pipefail
 
@@ -29,7 +29,7 @@ SERVER_PORT=17281
 SECONDARY_PORT=17283
 PROXY_PORT=8181
 MOCK_PORT=18281
-DB_SRC=/tmp/ainames-db/cards.h2.mv.db
+DB_SRC=/tmp/xmage-cards-db/cards.h2.mv.db
 DB_WARM=/tmp/llm-reflection-db/cards.h2.mv.db
 H2="$HOME/.m2/repository/com/h2database/h2/1.4.197/h2-1.4.197.jar"
 

@@ -26,7 +26,7 @@ A local model costs whatever your hardware and electricity cost. A hosted provid
 
 ## Which models work?
 
-Any model behind an OpenAI-compatible chat-completions endpoint. That includes local Ollama, vLLM, llama.cpp server, and hosted providers such as OpenAI, Groq, or OpenRouter. The shipped launcher defaults to a Gemma model for the first seat and a DeepSeek model for the second; both are environment-overridable.
+Any model behind an OpenAI-compatible endpoint. Chat-completions is the default wire dialect; the OpenAI Responses and Anthropic Messages APIs are supported per seat. That includes local Ollama, vLLM, llama.cpp server, and hosted providers such as OpenAI, Anthropic, Groq, or OpenRouter. The shipped launcher defaults to a Gemma model for the first seat and a DeepSeek model for the second; both are environment-overridable.
 
 ## Do I need a GPU?
 

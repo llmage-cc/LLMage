@@ -13,7 +13,7 @@
 # Ports (reserved for this verification): server 127.0.0.1:17261
 # (secondary 17263), proxy 127.0.0.1:8161, strict mock 127.0.0.1:18261.
 # Cards DB: warmed copy at /tmp/reasonverify-db/cards.h2.mv.db, seeded
-# from /tmp/ainames-db/cards.h2.mv.db; the first boot after a fresh build may
+# from /tmp/xmage-cards-db/cards.h2.mv.db; the first boot after a fresh build may
 # rescan the card table (~40s; wait window 180s, verify >= 90000 cards).
 set -uo pipefail
 
@@ -28,7 +28,7 @@ SERVER_PORT=17261
 SECONDARY_PORT=17263
 PROXY_PORT=8161
 MOCK_PORT=18261
-DB_SRC=/tmp/ainames-db/cards.h2.mv.db
+DB_SRC=/tmp/xmage-cards-db/cards.h2.mv.db
 DB_WARM=/tmp/reasonverify-db/cards.h2.mv.db
 H2="$HOME/.m2/repository/com/h2database/h2/1.4.197/h2-1.4.197.jar"
 

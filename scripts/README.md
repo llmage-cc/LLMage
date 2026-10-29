@@ -29,7 +29,7 @@ and moving tracked upstream files creates conflicts on every upstream sync.
 |---|---|
 | `run-bot-game.sh` | Headless LLM-vs-LLM game via `BotGameRunner` (exit 0 complete / 1 start fail / 2 timeout). |
 | `pipeline.sh` | Full loop: ensure server → bot game → analyze postgame. |
-| `analyze-postgame.py` | Extracts bug claims from postgame reviews, cross-checks known false positives. |
+| `analyze-postgame.py` | Extracts bug claims from postgame reviews, cross-checks known false positives; classifies thinking visibility per seat (reports `hidden reasoning: N tokens`, suppresses the missing-thinking warning for hidden-thinking seats via marker or `--hidden-thinking-seat`). |
 | `pick-random-setup.py` | Random format/deck/model selection for autonomous testing (needs local Ollama for the pool). |
 | `monitor-games.sh` | One-shot game-stall/error monitor. |
 | `monitor-watch.sh` | Background watcher for parallel Bo3 matches. |
@@ -43,7 +43,7 @@ and moving tracked upstream files creates conflicts on every upstream sync.
 | `replay-codec-migrate.sh` | One-time gzip→zstd conversion of `saved/*.game` (2026-09-24 codec switch; streamed, byte-exact verified, idempotent). |
 | `replay-retention.sh` | Prunes replay pairs by size/age policy, oldest first — **dry-run by default**, `--apply` to delete. Pairs stay consistent; see `--help`. |
 | `verify-replay-retention.sh` | Self-contained fixture harness for `replay-retention.sh` (no server/docker; temp trees under `$TMPDIR`). |
-| `verify-replay-llm-crossgame.sh` | Offline harness for cross-game `replayLLMData` scoping: Bo3 manufacture on the engine's player-reuse path, corpus walk (`--corpus DIR`), injected-defect selftest. The walk also asserts that the `misbound_pre_save` beginStep family is limited to the characterized cleanup-step shape. No server/network; compiles against the built tree. |
+| `verify-replay-llm-crossgame.sh` | Offline harness for cross-game `replayLLMData` scoping: Bo3 manufacture on the engine's player-reuse path, corpus walk (`--corpus DIR`), injected-defect selftest, and a walk of the committed pre-game fixture (`scripts/fixtures/replay-pregame.game`, phase [4]). The walk still asserts that the `misbound_pre_save` beginStep family is limited to the characterized cleanup-step shape. No server/network; compiles against the built tree. |
 
 ## Live verification harnesses (web/LLM)
 
@@ -59,5 +59,4 @@ reserved ports — do not run two at once.
 | `verify-run-bot-game-host.sh` | No-server check of `run-bot-game.sh`'s default host handling (docker-bridge substitution trap). |
 | `verify-reason-field-live.sh` + `reasonverify-{launch-stack.sh,live-driver.py,postchecks.py,teardown-stack.sh}` | Ask-reason REASON-line verification: flag-on wire shapes → transcript assertions; flag-off byte-identity vs the pre-feature build; hostile-shape legs. |
 | `verify-postgame-reflection-async.sh` (+ `-launch.sh` / `-teardown.sh`, `.py` driver) | Async post-game reflection E2E: control leg (postgame files ARE written) + stall leg (match proceeds while the reflection is held). |
-| `ainames-launch-stack.sh` / `ainames-live-driver.py` / `ainames-teardown-stack.sh` | Asserts web-launched LLM seats get generated names + personalities (no `AI-<n>` placeholders). |
 | `VerifyReplayLlmCrossgame.java` | Driver behind `verify-replay-llm-crossgame.sh` (cross-game `replayLLMData` scoping). |

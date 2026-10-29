@@ -116,6 +116,11 @@ public class StubPlayer extends PlayerImpl {
         if (target.getFilter().getMessage() != null && target.getFilter().getMessage().endsWith(" more) to put on the bottom of your library")) {
             chooseDiscardBottom(game, target.getMinNumberOfTargets(), new ArrayList<>(target.possibleTargets(null, source, game)))
                     .forEach(cardId -> target.add(cardId, game));
+            // The stub DID choose a card here, so it must say so: LondonMulligan's
+            // bottom-card step stops on a false return, and returning false after
+            // adding a target is a contract violation (Player.chooseTarget:
+            // "must return false to stop choosing").
+            return !target.getTargets().isEmpty();
         }
         return false;
     }

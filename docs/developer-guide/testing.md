@@ -66,7 +66,7 @@ Useful switches:
 
 ## The LLM suite
 
-`Mage.Tests/src/test/java/org/mage/test/LLM` contains 52 test classes and roughly 260 test methods. They fall into these groups:
+`Mage.Tests/src/test/java/org/mage/test/LLM` contains 62 test classes and roughly 330 test methods. They fall into these groups:
 
 | Group | Examples | What is verified |
 |---|---|---|
@@ -99,7 +99,7 @@ The suite proves that decision plumbing, request shape, retry behavior, and fail
 mvn test -pl Mage.WebProxy
 ```
 
-The module has 38 test classes covering:
+The module has 41 test classes covering:
 
 - capability probing and gating (`ServerCapabilitiesTest`, `WebProxyPublicHostingTest`)
 - serializers for views, choices, combat, facedown cards, and rollback state

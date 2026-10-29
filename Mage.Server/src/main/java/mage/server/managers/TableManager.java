@@ -22,6 +22,21 @@ public interface TableManager {
 
     Table createTable(UUID roomId, MatchOptions options);
 
+    /**
+     * Table for one tournament match (a sub-table). It has no creator user of its own — no
+     * user is its owner, exactly as before — but its client-key LLM seats belong to the
+     * browser that created the tournament, which holds the per-seat keys. That user is
+     * passed as the table's LLM-seat owner so the LLM bridge can route prompts to it
+     * (see {@code TableController.getOwnerUserId}).
+     *
+     * @param roomId              room the match table lives in
+     * @param llmSeatOwnerUserId  the tournament's creator (the browser that configured the
+     *                            seats), or null when the tournament was created by the
+     *                            server itself
+     * @param options             match options for this pairing/round
+     */
+    Table createTournamentMatchTable(UUID roomId, UUID llmSeatOwnerUserId, MatchOptions options);
+
     Table createTournamentTable(UUID roomId, UUID userId, TournamentOptions options);
 
     Table getTable(UUID tableId);

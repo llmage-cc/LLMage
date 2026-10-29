@@ -1974,6 +1974,8 @@ public class MageFrame extends javax.swing.JFrame implements MageClient {
      * Use it after new images downloaded, new fonts or theme settings selected.
      */
     public void refreshGUIAndCards() {
+        ThreadUtils.ensureRunInGUISwingThread();
+
         ImageCaches.clearAll();
 
         setGUISize();

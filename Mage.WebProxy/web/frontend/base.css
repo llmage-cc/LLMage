@@ -1,9 +1,23 @@
-/* Design tokens + global reset for the XMage web client.
-   Trimmed from the mage-bench Astro site's base.css — the .site-nav /
-   .nav-link / .site-main / .site-footer rules were for the static docs
-   site and are not used by the web client. Only :root vars, the html/box
-   reset, and body baseline are kept. */
+/* ── LLMage web client: design tokens and global reset ───────────────────────
+   First-party file, written for this client out of its own usage. The
+   custom-property names and values below are the contract the rest of the
+   frontend is styled against — the legacy pages under web/frontend and the
+   React tree under web/frontend/react — so a rename or a re-value is an API
+   change and must land together with every consumer.
 
+   Loaded by web/frontend/index.html and web/frontend/react/index.html as
+   /base.css. Sections:
+     1. Palette (dark defaults)
+     2. Type families
+     3. Sizing and scale (cards, zoom-compensated viewport, chrome)
+     4. Reset and body baseline
+     5. Light theme overrides
+     6. Card-preview override (light theme)
+     7. Scrollbars
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* 1. Palette — dark theme is the default. Values are the source of truth for
+   every surface, border and text colour in the client. */
 :root {
   --bg-base: #0c0c0f;
   --bg-surface: #17171c;
@@ -31,48 +45,51 @@
   --medal-bronze: #cd7f32;
   --medal-bronze-rgb: 205, 127, 50;
   --text-prose: #d0d0d6;
+
+  /* 2. Type families. The named faces are not bundled — an installed face is
+     used when present, otherwise the generic fallback in the stack applies. */
   --font-heading: 'Space Grotesk', system-ui, sans-serif;
   --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
   --font-prose: 'Crimson Pro', 'Georgia', serif;
 
-  /* ── Responsive card sizing ──
-     Set by _updateResponsiveSizing() in app.js based on viewport width.
-     Default values match the original fixed sizes (80px card). */
+  /* 3a. Card sizing. cardFit.ts overwrites these on :root from the measured
+     viewport (--card-width, --card-height, --card-overlap, --card-sm-width,
+     --card-width-sm …); the values here are the pre-JS fallback and keep the
+     battlefield usable before the first measurement. */
   --card-width: 80px;
-  --card-overlap: 98px;     /* vertical overlap for stacked cards (height + 18px) */
+  --card-overlap: 98px;     /* vertical step of a stacked pile (card height + 18px) */
   --card-sm-width: 60px;   /* small card (hand, stack) */
   --card-font-pt: 0.7rem;  /* P/T font size */
   --card-font-counter: 0.65rem; /* counter badge font size */
   --card-font-badge: 0.75rem;  /* stack count badge font size */
 
-  /* ── Zoom-compensated viewport units ──
-     CSS vh/vw units reference the real (unzoomed) viewport. With zoom: 0.75
-     on html, height: 100vh renders at only 75% of the screen. These vars
-     compensate: var(--vh) = 100vh / zoom, so it fills the actual screen. */
+  /* 3b. Zoom-compensated viewport units. html is zoomed to 0.75 (below), so a
+     raw 100vh only covers 75% of the screen. Dividing by --zoom turns vh/vw
+     into units of the real viewport; anything that must fill the screen uses
+     --vh / --vw instead of 100vh / 100vw. */
   --zoom: 0.75;
   --vh: calc(100vh / var(--zoom));
   --vw: calc(100vw / var(--zoom));
 
-  /* ── Whole-UI structural scale ──
-     --ui-scale scales the CHROME (rail widths, header/phase-bar/button paddings,
-     rail paddings/gaps) so the whole interface scales together — text already
-     scales via --font-scale above, cards via --card-width. App.tsx sets both
-     on :root; the default raises the chrome ~40% at every resolution (the
-     0.75 root zoom made header buttons ~18px tall and the side rails ~105px,
-     cramped even at 1920x1080). Structural px metrics consume it via
-     calc(<px> * var(--ui-scale)). */
+  /* 3c. Chrome scale. --ui-scale multiplies structural px metrics (rail
+     widths, header/phase-bar paddings, gaps) so the interface grows as one
+     piece; text scales through --font-scale (set on :root by App.tsx and read
+     by html's font-size below), cards through --card-width. 1.35 lifts the
+     chrome ~40% at the default zoom, which is readable at 1920x1080. */
   --ui-scale: 1.35;
 }
 
+/* 4. Reset and body baseline. The client is a fixed-viewport application:
+   nothing scrolls at the document level, panes do their own scrolling. */
 html {
   height: 100%;
   margin: 0;
   overflow: hidden;
-  zoom: 0.75;  /* Replicates 75% browser zoom */
-  /* font-scale: set the rem base on <html> so ALL rem-based sizes across
-     the UI scale, not just the body text. App.tsx sets --font-scale on
-     :root; default 1 keeps the 16px browser default. */
+  zoom: 0.75;  /* 75% browser-zoom equivalent (the desktop-layout default) */
+  /* --font-scale is written on :root by App.tsx. Putting it on the rem base
+     here scales every rem-based size in the UI; a default of 1 keeps the
+     browser's 16px. */
   font-size: calc(100% * var(--font-scale, 1));
 }
 
@@ -85,9 +102,8 @@ html {
 
 body {
   font-family: var(--font-body);
-  /* font-scale: the scale is applied ONCE — on <html> above, by remapping the
-     rem base. 1rem here already reflects --font-scale; multiplying again on
-     body would double-scale all inherited text. */
+  /* Scale is applied once, on html above. 1rem already carries --font-scale;
+     multiplying again here would double-scale every inherited size. */
   font-size: 1rem;
   line-height: 1.6;
   color: var(--text-primary);
@@ -99,11 +115,9 @@ body {
   flex-direction: column;
 }
 
-/* ── Light theme overrides ──
-   Activated when App.tsx sets data-theme="light" on <html>.
-   Overrides the :root dark color tokens with a clean light palette:
-   white/gray backgrounds, dark text. Zoom stays 0.75 to match the dark
-   theme's responsive sizing assumptions. */
+/* 5. Light theme. App.tsx sets data-theme="light" on <html>; only the colour
+   tokens change. The 0.75 zoom stays, so the responsive sizing assumptions
+   made for the dark theme hold here too. */
 [data-theme='light'] {
   --bg-base: #f5f5f7;
   --bg-surface: #ffffff;
@@ -123,20 +137,19 @@ html[data-theme='light'] {
   zoom: 0.75;
 }
 
-/* Card preview tooltip — game-renderer.css uses a hardcoded dark rgba
-   background. Override for the light theme so the preview is legible. */
+/* 6. Card preview. game-renderer.css paints the preview with a fixed dark
+   rgba background; in the light theme that leaves dark text on a dark plate,
+   so the preview surface is repainted here. */
 [data-theme='light'] #card-preview {
   background: rgba(255, 255, 255, 0.97);
 }
 
-/* ── Scrollbars — on-theme, replaces the stock browser scrollbar ──
-   One global rule set for the whole webui. WebKit/Chromium gets the fully custom
-   rounded thumb below;
-   Firefox (no ::-webkit-scrollbar support) gets the standard thin
-   scrollbar tinted with the same tokens via the @supports branch.
-   NOTE: in Chrome 121+ the standard scrollbar-* properties DISABLE the
-   -webkit pseudo styling, so they are only set where webkit styling
-   can't apply — never set scrollbar-width/color unconditionally. */
+/* 7. Scrollbars. One global treatment replaces the stock browser scrollbar
+   across the whole web UI (2026-09-20). WebKit/Chromium gets the rounded
+   floating thumb; Firefox, which has no ::-webkit-scrollbar, gets the
+   standard thin scrollbar tinted with the same tokens.
+   Keep scrollbar-width/color inside the @supports guard: setting them
+   unconditionally disables the -webkit pseudo-element styling in Chrome 121+. */
 :root {
   --scrollbar-size: 10px;
   --scrollbar-thumb: #3a3a46;
@@ -169,8 +182,8 @@ html[data-theme='light'] {
 
 *::-webkit-scrollbar-thumb {
   background-color: var(--scrollbar-thumb);
-  /* Transparent border + background-clip insets the thumb so it floats
-     inside its lane instead of touching both edges. */
+  /* A transparent border clipped to the padding box insets the thumb, so it
+     floats inside the lane instead of touching both edges. */
   border: 2px solid transparent;
   background-clip: padding-box;
   border-radius: calc(var(--scrollbar-size) / 2);

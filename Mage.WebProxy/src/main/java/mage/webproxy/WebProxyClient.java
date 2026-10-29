@@ -2329,7 +2329,7 @@ public class WebProxyClient implements MageClient {
         msg.put("needs_targets", candidateCount > 0);
         msg.put("min_targets", required ? 1 : 0);
         msg.put("max_targets", candidateCount);
-        // item 3 (arrows bug): a NOT_TARGET choice ("exile a card from your
+        // A NOT_TARGET choice ("exile a card from your
         // hand" — Chrome Mox imprint, surveil-style lists) is a card LIST, not spell
         // targeting. The engine stamps the flag on the Target object (Target.isNotTarget,
         // HumanPlayer.getOptions puts it in the prompt options); forward it so the web UI

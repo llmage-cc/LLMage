@@ -127,7 +127,7 @@ The split between `lib/` and `plugins/` is deliberate. The server's classpath li
 |---|---|
 | `Mage.Client/release/config/log4j.properties` | Desktop client logging configuration. |
 | `Mage.Client/release/sample-decks/` | Ready-made decks, grouped by year and format; useful as deck-format examples. |
-| `Mage.Client/serverlist.txt` | Cached server list written by the client; ignored by git. |
+| Java preferences store (`MagePreferences`) | The client remembers the last server address and port here, not in a file in the tree. |
 | `Mage.Client/plugins/images/`, `Mage.Client/plugins/plugin.data` | Downloaded card images and plugin data; ignored by git. |
 | `Mage.WebProxy/web/frontend/` | The served frontend: `index.html`, `assets/`, plus the tracked `decks/`, `avatars/`, `styles/`, and `sounds/` directories. |
 | `Mage.WebProxy/web/frontend/react/` | Frontend sources. `npm run build` writes the parent directory's `index.html` and `assets/`. |

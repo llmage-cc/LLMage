@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # check-serial-uid-drift.sh — pre-commit / CI gate against replay-orphaning serialVersionUID drift
-# (third instance of the class: Deck 2026-09-17, ManaCostImpl+HumanPlayer 2026-09-29 —
-# see  §"Recommended fix").
+# (third instance of the class: Deck 2026-09-17, ManaCostImpl+HumanPlayer 2026-09-29).
 #
 # Two phases:
 #

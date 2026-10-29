@@ -1,5 +1,6 @@
 package mage.cards;
 
+import mage.ObjectColor;
 import mage.abilities.Ability;
 import mage.abilities.Mode;
 import mage.abilities.effects.Effect;
@@ -12,11 +13,13 @@ import mage.constants.SubType;
 import mage.target.Target;
 import mage.target.TargetPermanent;
 import mage.target.common.TargetPlayerOrPlaneswalker;
+import mage.util.ManaUtil;
 import mage.view.CardView;
 import org.apache.log4j.Logger;
 
 import java.io.InputStream;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Class responsible for reading ratings from resources and rating given cards.
@@ -28,9 +31,10 @@ public final class RateCard {
 
     public static final boolean PRELOAD_CARD_RATINGS_ON_STARTUP = false; // warning, rating and card classes preloading can cause lags for users with low memory
 
-    private static Map<String, Integer> baseRatings = new HashMap<>();
-    private static final Map<String, Integer> ratedCard = new HashMap<>();
-    private static final Map<String, Integer> ratedCardView = new HashMap<>(); // Rating is not exactly the same for CardView, so cached in a different map.
+    // caches are shared by all threads and AI/bots, so make sure it's thread safe
+    private static final Map<String, Integer> baseRatings = new ConcurrentHashMap<>();
+    private static final Map<String, Integer> ratedCard = new ConcurrentHashMap<>();
+    private static final Map<String, Integer> ratedCardView = new ConcurrentHashMap<>(); // Rating is not exactly the same for CardView, so cached in a different map.
     private static boolean isLoaded = false;
 
     /**
@@ -90,8 +94,11 @@ public final class RateCard {
         }
 
         String name = card.getName();
-        if (useCache && allowedColors.isEmpty() && ratedCard.containsKey(name)) {
-            return ratedCard.get(name);
+        if (useCache && allowedColors.isEmpty()) {
+            Integer cachedScore = ratedCard.get(name);
+            if (cachedScore != null) {
+                return cachedScore;
+            }
         }
 
         int typeMultiplier = typeMultiplier(card);
@@ -111,8 +118,11 @@ public final class RateCard {
         }
 
         String name = cardview.getName();
-        if (useCache && allowedColors.isEmpty() && ratedCardView.containsKey(name)) {
-            return ratedCardView.get(name);
+        if (useCache && allowedColors.isEmpty()) {
+            Integer cachedScore = ratedCardView.get(name);
+            if (cachedScore != null) {
+                return cachedScore;
+            }
         }
 
         int typeMultiplier = typeMultiplier(cardview);
@@ -384,24 +394,68 @@ public final class RateCard {
      */
 
     private static int getManaCostScore(Card card, List<ColoredManaSymbol> allowedColors) {
+        // lands have no mana cost, so check the colors they make instead
+        if (isOffColorNonBasicLand(card, allowedColors)) {
+            return OFF_COLOR_PENALTY;
+        }
+        // split and room cards: each half can be cast alone, so use the best half
+        // (whole card contains mana symbols of both halves)
+        if (card instanceof SplitCard) {
+            SplitCard splitCard = (SplitCard) card;
+            return Math.max(
+                    getManaCostScore(splitCard.getLeftHalfCard(), allowedColors),
+                    getManaCostScore(splitCard.getRightHalfCard(), allowedColors)
+            );
+        }
         return getManaCostScore(
                 card.getName(),
-                card.getManaValue(),
                 card.getManaCostSymbols(),
                 allowedColors
         );
     }
 
+    /**
+     * Card with mana symbols of other colors (it's useless for a deck with allowed colors)
+     */
+    public static boolean isOffColorCard(Card card, List<ColoredManaSymbol> allowedColors) {
+        return !allowedColors.isEmpty() && getManaCostScore(card, allowedColors) == OFF_COLOR_PENALTY;
+    }
+
+    /**
+     * Nonbasic land with colored mana in its rules (color identity), but without any allowed color
+     * (lands without colored mana symbols like "any color" or colorless ones are fine for any deck)
+     */
+    private static boolean isOffColorNonBasicLand(Card card, List<ColoredManaSymbol> allowedColors) {
+        if (allowedColors.isEmpty() || !card.isLand() || card.isBasic()) {
+            return false;
+        }
+        List<ObjectColor> landColors = ManaUtil.getColorIdentity(card).getColors();
+        if (landColors.isEmpty()) {
+            return false;
+        }
+        ObjectColor deckColors = new ObjectColor();
+        for (ColoredManaSymbol allowedColor : allowedColors) {
+            deckColors.addColor(new ObjectColor(allowedColor.toString()));
+        }
+        for (ObjectColor landColor : landColors) {
+            if (deckColors.shares(landColor)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static int getManaCostScore(CardView cardview, List<ColoredManaSymbol> allowedColors) {
         return getManaCostScore(
                 cardview.getName(),
-                cardview.getManaValue(),
                 cardview.getManaCostSymbols(),
                 allowedColors
         );
     }
 
-    private static int getManaCostScore(String name, int manaValue, List<String> manaCostSymbols, List<ColoredManaSymbol> allowedColors) {
+    private static int getManaCostScore(String name, List<String> manaCostSymbols, List<ColoredManaSymbol> allowedColors) {
+        // mana value is not used here: an expensive card must not be better than a cheap one by its cost only,
+        // a deck curve is checked by the deck building logic instead
         if (allowedColors.isEmpty()) {
             int colorPenalty = 0;
             for (String symbol : manaCostSymbols) {
@@ -409,7 +463,7 @@ public final class RateCard {
                     colorPenalty++;
                 }
             }
-            return 2 * (manaValue - colorPenalty + 1);
+            return -2 * colorPenalty;
         }
 
         // Basic lands have no value so they're always treated as off-color
@@ -422,6 +476,9 @@ public final class RateCard {
         for (String symbol : manaCostSymbols) {
             int count = 0;
             symbol = symbol.replace("{", "").replace("}", "");
+            if (isOffColorHybridMana(symbol, allowedColors)) {
+                return OFF_COLOR_PENALTY;
+            }
             if (isColoredMana(symbol)) {
                 for (ColoredManaSymbol allowed : allowedColors) {
                     if (allowed.toString().equals(symbol)) {
@@ -443,11 +500,28 @@ public final class RateCard {
         if (maxSingleCount > 5)
             maxSingleCount = 5;
 
-        int rate = 2 * manaValue + 3 * (10 - SINGLE_PENALTY[maxSingleCount]);
+        int rate = 3 * (10 - SINGLE_PENALTY[maxSingleCount]);
         if (singleCount.size() > 1 && singleCount.size() < 5) {
             rate += MULTICOLOR_BONUS;
         }
         return rate;
+    }
+
+    /**
+     * Hybrid mana symbol of two colors (example: R/G) without any allowed color
+     * (mono hybrid like 2/G and phyrexian like G/P can be paid by generic mana or life, so it's fine)
+     */
+    private static boolean isOffColorHybridMana(String symbol, List<ColoredManaSymbol> allowedColors) {
+        String[] parts = symbol.split("/");
+        if (parts.length != 2 || !isColoredMana(parts[0]) || !isColoredMana(parts[1])) {
+            return false;
+        }
+        for (ColoredManaSymbol allowed : allowedColors) {
+            if (allowed.toString().equals(parts[0]) || allowed.toString().equals(parts[1])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

@@ -545,6 +545,14 @@ public abstract class TargetImpl implements Target {
     }
 
     @Override
+    public boolean hasChangedZones(UUID id, Game game) {
+        Card card = game.getCard(id);
+        return card != null
+                && zoneChangeCounters.containsKey(id)
+                && zoneChangeCounters.get(id) != card.getZoneChangeCounter(game);
+    }
+
+    @Override
     public boolean isLegal(Ability source, Game game) {
         //20101001 - 608.2b
         Set<UUID> illegalTargets = new HashSet<>();
@@ -558,9 +566,7 @@ public abstract class TargetImpl implements Target {
                     illegalTargets.add(targetId);
                     continue; // it's not legal so continue to have a look at other targeted objects
                 }
-                // check if the card moved to another zone
-                if (zoneChangeCounters.containsKey(targetId)
-                        && zoneChangeCounters.get(targetId) != card.getZoneChangeCounter(game)) {
+                if (hasChangedZones(targetId, game)) {
                     illegalTargets.add(targetId);
                     continue; // it's not legal so continue to have a look at other targeted objects
                 }
@@ -864,9 +870,9 @@ public abstract class TargetImpl implements Target {
      * <p>
      * Rationale for the level-1 bot branch: level 2 skips the own-permanent feel-bad
      * filter in {@link #tryToAutoChoose}, so a bot's removal spell silently auto-targeted
-     * its OWN permanent when that was the only legal target
-     * (issues/2026-09-12-bot-auto-target-own-permanent: game 4c447095 T11, Dark Banishing
-     * auto-killed the caster's own Ephara's Warden with no target prompt). Level 1 keeps
+     * its OWN permanent when that was the only legal target — in one observed game,
+     * Dark Banishing auto-killed the caster's own Ephara's Warden with no target prompt.
+     * Level 1 keeps
      * auto-choose enabled (the {@code playerAutoTargetLevel > 0} gate) while still running
      * the guard; when the guard filters every candidate, tryToAutoChoose returns null and
      * the player's own chooseTarget path decides — for the LLM player that surfaces a real

@@ -216,7 +216,7 @@ const popup = readFileSync(join(HERE, '..', 'src', 'components', 'DecisionPopup.
 
 check('ActionPromptBar does NOT render a choose_ability body',
   !/<ChooseAbilityPrompt\b/.test(bar) && !/prompt\.type === 'choose_ability' &&\s*</.test(bar))
-// item 2 moved ALL prompt bodies into the centred DecisionPopup window;
+// The centred DecisionPopup window owns ALL prompt bodies;
 // the rail renders the message line + meta controls only. Stronger than the old
 // choose_ability-only gate: no body component may come back in the rail.
 check('ActionPromptBar renders NO per-type prompt bodies (DecisionPopup owns them)',

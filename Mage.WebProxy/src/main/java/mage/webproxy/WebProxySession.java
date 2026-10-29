@@ -6183,10 +6183,18 @@ public class WebProxySession {
      */
     private static List<String> fetchModelsFromEndpoint(String endpoint, String apiKey) throws Exception {
         List<String> models = new ArrayList<>();
-        // Derive base URL from the chat completions endpoint
+        // Derive base URL from the chat-completions endpoint. Dialect endpoints
+        // (/v1/responses, /v1/messages) derive the same base — the model list is
+        // still /v1/models with Bearer auth on OpenAI-shaped providers.
         String baseUrl = endpoint;
         if (baseUrl.endsWith("/v1/chat/completions")) {
             baseUrl = baseUrl.substring(0, baseUrl.length() - "/v1/chat/completions".length());
+        } else if (baseUrl.endsWith("/v1/responses")) {
+            baseUrl = baseUrl.substring(0, baseUrl.length() - "/v1/responses".length());
+        } else if (baseUrl.endsWith("/v1/messages")) {
+            baseUrl = baseUrl.substring(0, baseUrl.length() - "/v1/messages".length());
+        } else if (baseUrl.endsWith("/messages")) {
+            baseUrl = baseUrl.substring(0, baseUrl.length() - "/messages".length());
         } else if (baseUrl.endsWith("/v1")) {
             baseUrl = baseUrl.substring(0, baseUrl.length() - "/v1".length());
         } else {
@@ -6381,15 +6389,25 @@ public class WebProxySession {
 
     /**
      * The thinking dialect a web-created seat will run with. Web seats cannot
-     * override the dialect (LLMPlayerConfig has no dialect field), so a seat
-     * runs the SERVER default — the same property LLMPlayer.init reads for
-     * table seats ({@code xmage.llm.thinking_dialect}; table seats are always
-     * constructed with isSecondLlm=false, so the llm2.* variant never applies
-     * to them). Unset means the engine's own default, "effort".
+     * override the THINKING dialect (LLMPlayerConfig carries no thinking-dialect
+     * field), so a seat runs the SERVER default — the same property LLMPlayer.init
+     * reads for table seats ({@code xmage.llm.thinking_dialect}; table seats are
+     * always constructed with isSecondLlm=false, so the llm2.* variant never
+     * applies to them). Unset means the engine's own default, "effort".
      */
     static String serverDefaultThinkingDialect() {
         String v = System.getProperty("xmage.llm.thinking_dialect");
         return v != null && !v.isEmpty() ? v : "effort";
+    }
+
+    /**
+     * Server-default provider API dialect for web seats that do not override it
+     * (LLMPlayerConfig.getApiDialect() == null). Mirrors LLMPlayer.init's
+     * property read. Unset = the engine default, "chat-completions".
+     */
+    static String serverDefaultApiDialect() {
+        String v = System.getProperty("xmage.llm.api_dialect");
+        return v != null && !v.isEmpty() ? v : "chat-completions";
     }
 
     /**
@@ -6402,8 +6420,17 @@ public class WebProxySession {
      */
     private void sendThinkingShapeWarnings(String opName, List<SeatConfig> seatConfigs) {
         String dialect = serverDefaultThinkingDialect();
+        String apiDialect = serverDefaultApiDialect();
         for (SeatConfig sc : seatConfigs) {
             if (sc.playerType != PlayerType.COMPUTER_LLM || sc.llmConfig == null) {
+                continue;
+            }
+            // The strict-shape warning describes the chat-completions body (bare
+            // reasoning_effort). Responses/Anthropic seats never send that shape,
+            // so warning about it there would be false advice.
+            String seatApiDialect = sc.llmConfig.getApiDialect() != null
+                    ? sc.llmConfig.getApiDialect() : apiDialect;
+            if (!"chat-completions".equals(seatApiDialect)) {
                 continue;
             }
             boolean thinkingEnabled = sc.llmConfig.isThinkingEnabled() == null
@@ -6492,6 +6519,15 @@ public class WebProxySession {
         if (lcfg.has("reasoningEffort") && !lcfg.get("reasoningEffort").getAsString().isEmpty()) {
             String re = lcfg.get("reasoningEffort").getAsString();
             if (!"default".equals(re)) c.setReasoningEffort(re);
+        }
+        // Provider API dialect (frontier Phase 2). "default"/absent = server
+        // default. The value is validated by LLMConfig.apiDialect when the seat
+        // is built (Fail Fast, one canonical valid-value list) — the proxy never
+        // silently falls back to chat-completions.
+        if (lcfg.has("apiDialect") && !lcfg.get("apiDialect").isJsonNull()
+                && !lcfg.get("apiDialect").getAsString().isEmpty()) {
+            String ad = lcfg.get("apiDialect").getAsString();
+            if (!"default".equals(ad)) c.setApiDialect(ad);
         }
         if (lcfg.has("thinkingEnabled")) c.setThinkingEnabled(lcfg.get("thinkingEnabled").getAsBoolean());
         if (lcfg.has("temperatureEnabled")) c.setTemperatureEnabled(lcfg.get("temperatureEnabled").getAsBoolean());

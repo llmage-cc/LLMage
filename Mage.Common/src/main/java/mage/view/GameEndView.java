@@ -186,10 +186,10 @@ public class GameEndView implements Serializable {
 
     /**
      * Why the game ended for this view's player: one of the
-     * {@link mage.game.GameEndReason} values ("llm_failure", "concede",
-     * "timeout", "idle", "quit") or "unknown" when nothing was recorded (a
-     * played-out win or a draw). Null on the spectator/watcher view, which has
-     * no subject player.
+     * {@link mage.game.GameEndReason} values ("llm_failure", "llm_format_forfeit",
+     * "concede", "timeout", "idle", "quit", "technical_error") or "unknown" when nothing
+     * was recorded (a played-out win or a draw). Null on the spectator/watcher
+     * view, which has no subject player.
      */
     public String getEndReason() {
         return endReason;

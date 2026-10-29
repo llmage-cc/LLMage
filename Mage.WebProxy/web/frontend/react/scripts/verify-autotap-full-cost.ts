@@ -368,9 +368,9 @@ section('AFTER — a run ends when its prompt is withdrawn')
 section('Button label — the control automated UI tests click by text')
 {
   // The label is a CONTRACT, not decoration: browser tests locate this button by its
-  // text (skill refs: browser-ui-test-harness.md, webui-testing-recipes.md), so a rename
-  // that misses them turns every automated mana payment into a timeout. Rendering the REAL
-  // component (react-dom/server, same pattern as verify-trigger-order.tsx) makes the
+  // text, so a rename that misses them turns every automated mana payment into a
+  // timeout. Rendering the REAL component (react-dom/server, same pattern as
+  // verify-trigger-order.tsx) makes the
   // contract executable here instead of only in prose.
   const label = 'Auto-Tap Lands'
   // The pre-rename label, spelled via replace() so THIS file stays grep-clean of it: the

@@ -99,11 +99,10 @@ The live-stack harnesses each reserve their own ports and start their own server
 | `verify-postgame-reflection-async.sh` | That a held reflection does not block the match or the next game. |
 | `verify-replay-llm-crossgame.sh` | That per-game LLM replay records stay bound to their own game across a match and a corpus. |
 | `verify-replay-retention.sh` | That the retention decision table, deletions, and safety rails hold on synthetic fixtures. |
-| `ainames-launch-stack.sh` | Stands up the stack used to check that web-created seats get generated names, not placeholders. |
 
 The live harness wrappers exit `0` when every check passes, `2` when a check fails, and `3` when the stack or a prerequisite is missing, so a broken setup is never mistaken for a product failure. The two offline replay harnesses differ: both exit `1` for a failed phase, but only the cross-game harness defines `2` for a usage or build error.
 
-Each wrapper has companion drivers in the same directory (the `reasonverify-*` and `ainames-*` families, a `.py` driver beside each `.sh` wrapper, and the Java driver behind the cross-game harness). Run the wrapper, not the companion.
+Each wrapper has companion drivers in the same directory (the `reasonverify-*` family, a `.py` driver beside each `.sh` wrapper, and the Java driver behind the cross-game harness). Run the wrapper, not the companion.
 
 ## In-client commands
 
@@ -139,7 +138,8 @@ The launchers read these; a value in your shell wins over the script's default.
 | Variable | Meaning |
 |---|---|
 | `LLM1_MODEL`, `LLM2_MODEL` | Model identifier for each seat. |
-| `LLM1_ENDPOINT`, `LLM2_ENDPOINT` | OpenAI-compatible chat-completions URL. |
+| `LLM1_ENDPOINT`, `LLM2_ENDPOINT` | OpenAI-compatible chat-completions URL; the other API dialects derive their own path from it. |
+| `LLM1_API_DIALECT`, `LLM2_API_DIALECT` | Provider wire dialect: `chat-completions` (default), `openai-responses`, or `anthropic-messages`. |
 | `LLM1_KEY`, `LLM2_KEY` | API key, delivered through the environment. Empty for a keyless local endpoint. |
 | `LLM1_EFFORT`, `LLM2_EFFORT` | `low`, `medium`, `high`, or `max`. |
 | `LLM1_CONTEXT_WINDOW`, `LLM2_CONTEXT_WINDOW` | Context window in tokens, required when the provider publishes none. |

@@ -17,7 +17,8 @@ run is always a build.
 | An OpenAI-compatible endpoint | — | Required for LLM seats, not for the build |
 
 Ollama is the usual local endpoint. Any hosted provider that speaks the chat-completions API works
-as well, and you can install without Ollama entirely if every seat will use a hosted model.
+as well — the OpenAI Responses and Anthropic Messages wire dialects are also supported per seat —
+and you can install without Ollama entirely if every seat will use a hosted model.
 
 Install the JDK and Maven with your platform's package manager — on Debian or Ubuntu:
 `sudo apt install openjdk-21-jdk maven`. For local models, install Ollama from

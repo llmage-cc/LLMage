@@ -577,9 +577,11 @@ public class NewTableDialog extends MageDialog {
                     table = null;
                     return;
                 }
-                // Start the match immediately and watch (no human at the table)
+                // Start the match immediately and watch (no human at the table).
+                // The start is queued, so the watch is retried until the table
+                // is DUELING and the server accepts it.
                 SessionHandler.startMatch(roomId, table.getTableId());
-                SessionHandler.watchTable(roomId, table.getTableId());
+                SessionHandler.watchTableWhenStarted(roomId, table.getTableId());
                 doClose();
                 return;
             } else {

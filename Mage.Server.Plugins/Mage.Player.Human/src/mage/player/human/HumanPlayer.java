@@ -2296,9 +2296,15 @@ public class HumanPlayer extends PlayerImpl {
         FilterCreatureForCombatBlock filter = filterCreatureForCombatBlock.copy();
         filter.add(new ControllerIdPredicate(defendingPlayerId));
 
+        // The published blocker list and the skip decision below must agree, so both
+        // use the same narrowed list: a creature that cannot legally block any
+        // attacking group is not a choice the client can offer (a lone flyer against
+        // ground creatures used to publish an empty possible-blockers list).
+        java.util.List<CombatGroup> groups = game.getCombat().getGroups();
+        java.util.List<UUID> possibleBlockers = getPossibleBlockers(filter, filterBlock, groups, playerId, source, game);
+
         // stop skip on any/zero permanents available
-        int possibleBlockersCount = game.getBattlefield().count(filter, playerId, source, game);
-        boolean canStopOnAny = possibleBlockersCount != 0 && getControllingPlayersUserData(game).getUserSkipPrioritySteps().isStopOnDeclareBlockersWithAnyPermanents();
+        boolean canStopOnAny = !possibleBlockers.isEmpty() && getControllingPlayersUserData(game).getUserSkipPrioritySteps().isStopOnDeclareBlockersWithAnyPermanents();
 
         // skip declare blocker step
         // as opposed to declare attacker - it can be skipped by ANY skip button TODO: make same for declare attackers and rework skip buttons (normal and forced)
@@ -2310,16 +2316,15 @@ public class HumanPlayer extends PlayerImpl {
         if (skipButtonActivated && !canStopOnAny) {
             return;
         }
-        // Skip prompt to select blockers if player has none
-        if (possibleBlockersCount == 0) return;
+        // Skip prompt to select blockers if player has none (no legal blocks at all)
+        if (possibleBlockers.isEmpty()) {
+            return;
+        }
 
         while (canRespond()) {
             prepareForResponse(game);
             if (!isExecutingMacro()) {
                 Map<String, Serializable> options = new HashMap<>();
-                java.util.List<UUID> possibleBlockers = game.getBattlefield().getActivePermanents(filter, playerId, game).stream()
-                        .map(p -> p.getId())
-                        .collect(Collectors.toList());
                 options.put(Constants.Option.POSSIBLE_BLOCKERS, (Serializable) possibleBlockers);
                 game.fireSelectEvent(playerId, "Select blockers", options);
             }
@@ -2348,6 +2353,29 @@ public class HumanPlayer extends PlayerImpl {
                 }
             }
         }
+    }
+
+    /**
+     * Creatures the defending player can legally declare as blockers right now:
+     * only those that can block at least one attacking group. Already declared
+     * blockers stay in the list, because the client needs their ids to remove a
+     * block (see the filterBlock branch in selectBlockers).
+     */
+    static java.util.List<UUID> getPossibleBlockers(FilterCreatureForCombatBlock filter, FilterBlockingCreature filterBlock,
+            java.util.List<CombatGroup> groups, UUID playerId, Ability source, Game game) {
+        return game.getBattlefield().getActivePermanents(filter, playerId, game).stream()
+                .filter(p -> canBlockAnyGroup(p, groups, game) || filterBlock.match(p, playerId, source, game))
+                .map(Permanent::getId)
+                .collect(Collectors.toList());
+    }
+
+    static boolean canBlockAnyGroup(Permanent blocker, java.util.List<CombatGroup> groups, Game game) {
+        for (CombatGroup group : groups) {
+            if (group.canBlock(blocker, game)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     protected void selectCombatGroup(UUID defenderId, UUID blockerId, Game game) {

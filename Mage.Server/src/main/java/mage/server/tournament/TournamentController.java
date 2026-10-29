@@ -49,17 +49,26 @@ public class TournamentController {
     private final ManagerFactory managerFactory;
     private final UUID chatId;
     private final UUID tableId;
+    /**
+     * The user whose browser created this tournament — the one that configured the per-seat
+     * client-key LLM keys. Passed into every sub-table as its LLM-seat owner so the LLM
+     * bridge can route prompts to that browser (a sub-table has no creator user of its own;
+     * {@code TableController.getOwnerUserId}). Null only when no browser created the
+     * tournament (server-side creation), which keeps client-key seats unroutable there.
+     */
+    private final UUID ownerUserId;
     private volatile boolean started = false;
     private final Tournament tournament;
     private ConcurrentMap<UUID, UUID> userPlayerMap = new ConcurrentHashMap<>();
     private final ConcurrentMap<UUID, TournamentSession> tournamentSessions = new ConcurrentHashMap<>();
 
-    public TournamentController(ManagerFactory managerFactory, Tournament tournament, ConcurrentMap<UUID, UUID> userPlayerMap, UUID tableId) {
+    public TournamentController(ManagerFactory managerFactory, Tournament tournament, ConcurrentMap<UUID, UUID> userPlayerMap, UUID tableId, UUID ownerUserId) {
         this.managerFactory = managerFactory;
         this.userPlayerMap = userPlayerMap;
         this.chatId = managerFactory.chatManager().createTourneyChatSession(tournament);
         this.tournament = tournament;
         this.tableId = tableId;
+        this.ownerUserId = ownerUserId;
         init();
     }
 
@@ -238,7 +247,8 @@ public class TournamentController {
             matchOptions.setLlmPlayerConfigs(buildPairLlmConfigs(pair.getPlayer1(), pair.getPlayer2()));
 
             TableManager tableManager = managerFactory.tableManager();
-            Table table = tableManager.createTable(managerFactory.gamesRoomManager().getMainRoomId(), matchOptions);
+            Table table = tableManager.createTournamentMatchTable(
+                    managerFactory.gamesRoomManager().getMainRoomId(), ownerUserId, matchOptions);
             table.setTournamentSubTable(this.tableId);
             table.setTournament(tournament);
             table.setState(TableState.WAITING);
@@ -288,7 +298,8 @@ public class TournamentController {
             matchOptions.setLlmPlayerConfigs(configs);
 
             TableManager tableManager = managerFactory.tableManager();
-            Table table = tableManager.createTable(managerFactory.gamesRoomManager().getMainRoomId(), matchOptions);
+            Table table = tableManager.createTournamentMatchTable(
+                    managerFactory.gamesRoomManager().getMainRoomId(), ownerUserId, matchOptions);
             table.setTournamentSubTable(this.tableId);
             table.setTournament(tournament);
             table.setState(TableState.WAITING);

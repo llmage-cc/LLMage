@@ -605,7 +605,7 @@ public class SessionImpl implements Session {
         // copy + clear must be under the same lock, otherwise a callback added between the copy
         // and the clear of another thread is lost; all access goes through synchronized (waitingCallbacks)
         final List<ClientCallback> waitingCallbacks = new ArrayList<>();
-        //final CopyOnWriteArrayList<ClientCallback> waitingCallbacks = new CopyOnWriteArrayList<>;
+        //final CopyOnWriteArrayList<ClientCallback> waitingCallbacks = new CopyOnWriteArrayList<>();
 
         @Override
         public void handleCallback(Callback callback) {
@@ -783,8 +783,11 @@ public class SessionImpl implements Session {
     public boolean watchTable(UUID roomId, UUID tableId) {
         try {
             if (isConnected()) {
-                server.roomWatchTable(sessionId, roomId, tableId);
-                return true;
+                // Return the server's answer, not a blind true: TableController.watchTable
+                // refuses any table that is not DUELING, and acked ok:true there told a
+                // staging-table spectator it had a watcher when none was registered — the
+                // spectator then never received GAME_INIT/GAME_UPDATE once the match started.
+                return server.roomWatchTable(sessionId, roomId, tableId);
             }
         } catch (MageException ex) {
             handleMageException(ex);

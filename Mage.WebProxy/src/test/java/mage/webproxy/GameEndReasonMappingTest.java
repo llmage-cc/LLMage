@@ -25,6 +25,7 @@ public class GameEndReasonMappingTest {
         Assert.assertEquals("timeout", GameEndReason.TIMEOUT);
         Assert.assertEquals("idle", GameEndReason.IDLE);
         Assert.assertEquals("quit", GameEndReason.QUIT);
+        Assert.assertEquals("technical_error", GameEndReason.TECHNICAL_ERROR);
         Assert.assertEquals("unknown", GameEndReason.UNKNOWN);
     }
 
@@ -38,6 +39,12 @@ public class GameEndReasonMappingTest {
     public void recordedLlmFailureSurvivesWhenNoFlagIsSet() {
         Assert.assertEquals(GameEndReason.LLM_FAILURE,
                 GameEndReason.resolve(false, false, false, GameEndReason.LLM_FAILURE));
+    }
+
+    @Test
+    public void recordedTechnicalErrorSurvivesWhenNoFlagIsSet() {
+        Assert.assertEquals(GameEndReason.TECHNICAL_ERROR,
+                GameEndReason.resolve(false, false, false, GameEndReason.TECHNICAL_ERROR));
     }
 
     @Test

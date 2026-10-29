@@ -1,9 +1,10 @@
 # LLM providers
 
-Every LLM seat talks to one HTTP endpoint that speaks the OpenAI chat-completions shape. That
-single contract covers a local Ollama daemon, a hosted instance, an aggregator, a server you run
-yourself, and a commercial API. What differs is the model name, the key, whether the provider
-reports a context window, and which thinking parameters it accepts.
+Every LLM seat talks to one HTTP endpoint in one of three wire dialects: the OpenAI
+chat-completions shape (the default), the OpenAI Responses API, or the Anthropic Messages API.
+That contract covers a local Ollama daemon, a hosted instance, an aggregator, a server you run
+yourself, and a commercial API. What differs is the model name, the key, the dialect, whether the
+provider reports a context window, and which thinking parameters it accepts.
 
 > **Who this is for:** an operator configuring provider access for a server, not a player choosing
 > a model at the table. The player-facing view is on
@@ -14,7 +15,9 @@ reports a context window, and which thinking parameters it accepts.
 A seat sends `POST` requests to the endpoint exactly as configured. Three requirements follow:
 
 - The endpoint must end in `/v1/chat/completions` or `/v1`. Model discovery and context-window
-  detection strip that suffix to build their own URLs; anything else fails fast.
+  detection strip that suffix to build their own URLs; anything else fails fast. With another
+  API dialect configured the endpoint may stay the chat-completions URL — the dialect derives
+  its own path from it (see below).
 - The key, when set, is sent as a bearer token in the `Authorization` header.
 - Streaming is on by default; a provider that buffers the whole answer still works.
 
@@ -51,6 +54,7 @@ either step aborts seat creation, not the game.
 | Property | Launcher variable | Default | Meaning |
 |---|---|---|---|
 | `xmage.llm.endpoint` | `LLM1_ENDPOINT` | `http://localhost:11434/v1/chat/completions` | Chat-completions URL. |
+| `xmage.llm.api_dialect` | `LLM1_API_DIALECT` | `chat-completions` | Provider wire dialect: `chat-completions`, `openai-responses`, or `anthropic-messages`. See "Provider API dialects" below. |
 | `xmage.llm.model` | `LLM1_MODEL` | `deepseek-v4-flash:cloud` in code; the launcher supplies its own | Model identifier sent to the provider. |
 | `xmage.llm.key` | `LLM1_KEY` | empty | Provider key. Use the environment, not this property. |
 | `xmage.llm.model_context_window` | `LLM1_CONTEXT_WINDOW` | `131072`, not explicit | Total context in tokens. Setting it also disables detection. |
@@ -155,7 +159,48 @@ overflows later, which look like the model forgetting the game.
 Client-key seats always need an explicit window: the server holds no key for them and cannot query
 the provider, so the browser sends the detected value with the seat configuration.
 
+## Provider API dialects
+
+`xmage.llm.api_dialect` selects the wire protocol a seat speaks to its endpoint. Everything above
+the HTTP client is dialect-agnostic: the decision path, retries, transcripts, and history behave
+the same.
+
+| Dialect | Endpoint POSTed | Thinking request | Thinking returned |
+|---|---|---|---|
+| `chat-completions` (default) | The configured endpoint, unchanged | `reasoning_effort` and/or `thinking.budget_tokens`, per the thinking dialect | Raw `reasoning_content` where the provider exposes it |
+| `openai-responses` | Derived `…/v1/responses` | `reasoning: {effort, summary: "auto"}` | Provider summary only |
+| `anthropic-messages` | Derived `…/v1/messages` | `thinking: {type: "adaptive", display: "summarized"}`, or `enabled` plus a clamped budget in the budget thinking dialect | Provider summary only |
+
+The configured endpoint may stay the chat-completions URL: the dialect derives its own path from
+`…/v1/chat/completions`, `…/chat/completions`, `…/v1`, or the dialect URL itself. Any other shape,
+and any unknown dialect value, fails at seat construction rather than mid-game.
+
+The effort level passes through unchanged, so it must be one the model accepts. OpenAI Responses
+models take `low`, `medium`, or `high` — the engine default `max` is rejected, so set the effort
+explicitly for those seats. Anthropic's newest models take no effort level at all: the dialect
+sends adaptive thinking and the effort string is not emitted; the empty-answer ladder still
+descends the configured levels for retry bookkeeping. With the `budget` thinking dialect on
+`anthropic-messages`, every rung of the budget ladder is clamped to the API floor of 1024 tokens.
+
+`max_tokens` is mandatory on Anthropic. The dialect uses the configured output cap when set and
+derives `max(16000, thinking budget + 8192)` otherwise; a configured cap that does not exceed the
+thinking budget is rejected at seat construction, because the provider would answer HTTP 400.
+
+Multi-turn reasoning on Anthropic carries each assistant turn's thinking blocks back unchanged in
+the next request. The engine stores the raw blocks with the message and replays them; a turn that
+has lost its blocks fails loudly instead of dropping history the provider would reject.
+
+The terse-answer stop follows the dialect: `stop: ["\n"]` on chat-completions,
+`stop_sequences: ["\n"]` on anthropic-messages, and a client-side first-line cut on
+openai-responses, which has no stop parameter.
+
+The startup probe builds, sends, and parses through the configured dialect, so a valid Responses
+or Anthropic configuration passes at table join and an invalid one fails there.
+
 ## Thinking dialects
+
+Thinking dialects are a separate axis from the API dialect above: the API dialect picks the
+provider's HTTP shape, the thinking dialect picks how reasoning is requested within it.
 
 Two wire formats cover the providers in use:
 
@@ -198,10 +243,15 @@ call may take up to ten minutes by default; raise the timeout only for models th
 
 ## Per-seat overrides
 
-The table dialog lets each seat set its own endpoint, model, key, effort, thinking switch,
-temperature, output cap, timeout, conversation limits, personality, and transcript directory. Empty
-fields inherit the server value, so one table can pit two providers against each other without a
-server change.
+The table dialog lets each seat set its own endpoint, model, key, API dialect, effort, thinking
+switch, temperature, output cap, timeout, conversation limits, personality, and transcript
+directory. Empty fields inherit the server value, so one table can pit two providers against each
+other without a server change.
+
+The LLMage-Nexus web lobby offers the same per-seat **API Dialect** select, and its proxy
+forwards the field to the server, so a dialect picked there reaches the seat. Leave it on
+*default* to let the server choose (`chat-completions` unless its own config says otherwise);
+an unknown value fails fast when the seat is constructed rather than at the first decision.
 
 A browser-supplied key takes a different path: the seat is marked as client-key, the server never
 holds the key, and each request body is handed to the seat owner's browser, which attaches the key
@@ -224,6 +274,8 @@ reports `false` and has no relay route compiled in.
 | HTTP 401 at the first decision | Key missing, wrong, or not exported into the server's environment | Export `LLM1_KEY` before starting, or point `XMAGE_KEY_FILE` at a readable file. |
 | HTTP 404 naming the model | Model identifier does not exist at that provider | Copy the exact identifier from the provider's model list. |
 | HTTP 400 "unknown field" | Strict gateway rejecting the thinking object | Use `effort` dialect, or disable thinking for that seat. |
+| `Unknown apiDialect '…'` at table join | Typo in the API dialect value | Use `chat-completions`, `openai-responses`, or `anthropic-messages`. |
+| HTTP 400 on `anthropic-messages` naming `max_tokens` | Output cap missing or not above the thinking budget | Raise `xmage.llm.max_tokens`, or lower the budget ladder. |
 | `LLM startup thinking probe FAILED` | Endpoint rejects the configured dialect or effort level | Match the dialect to the provider, or lower the effort. |
 | `Failed to detect context window` | Provider omits the field and no override is set | Set `xmage.llm.model_context_window`. |
 | Repeated empty answers | Reasoning consuming the whole output budget | Lower effort, keep the thinking cap, or choose a larger model. |

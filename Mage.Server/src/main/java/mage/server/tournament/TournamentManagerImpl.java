@@ -31,8 +31,8 @@ public class TournamentManagerImpl implements TournamentManager {
     }
 
     @Override
-    public void createTournamentSession(Tournament tournament, ConcurrentHashMap<UUID, UUID> userPlayerMap, UUID tableId) {
-        TournamentController tournamentController = new TournamentController(managerFactory, tournament, userPlayerMap, tableId);
+    public void createTournamentSession(Tournament tournament, ConcurrentHashMap<UUID, UUID> userPlayerMap, UUID tableId, UUID ownerUserId) {
+        TournamentController tournamentController = new TournamentController(managerFactory, tournament, userPlayerMap, tableId, ownerUserId);
         controllers.put(tournament.getId(), tournamentController);
     }
 

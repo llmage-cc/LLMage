@@ -161,7 +161,8 @@ public class GameLogCaptureTest {
         live.truncateGameLog(2);
         live.addGameLog("rollback announcement");
 
-        live.restore(snapshot);
+        // keepStack=false: this state's stack is irrelevant to the log contract.
+        live.restore(snapshot, false);
 
         // restore() must leave the live log exactly as the truncation left it:
         // the aborted lines stay gone, the announcement stays, and the snapshot

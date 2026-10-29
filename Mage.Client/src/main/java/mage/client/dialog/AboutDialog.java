@@ -20,12 +20,13 @@ public class AboutDialog extends MageDialog {
             + "jmharmon, Ketsuban, hitch17, weirddan455";
 
     /**
-     * License, provenance, third-party credits and WotC disclaimer for the public release
-
-     * Kept here instead of inside the NetBeans GEN block: the existing jLabel2 is reused,
-     * no design-time components or .form changes are required.
+     * Short-form credits for the About window: upstream provenance, icon and card-data
+     * attribution, and the pointer to the authoritative file. THIRD-PARTY-NOTICES.md at
+     * the repository root carries the full notices; keep the two in step.
+     * The text is compile-time constant — no value is interpolated into it — and the
+     * label renders it as static HTML purely to get line wrapping out of JLabel.
      */
-    private static String creditsList = "<html>"
+    private static final String creditsList = "<html>"
             + "Courtesy: BetaSteward@googlemail.com. Site: http://xmage.de/<br>"
             + "Based on XMage (github.com/magefree/mage), MIT License,<br>"
             + "(c) 2010 BetaSteward and contributors. LLMage modifications<br>"
@@ -34,9 +35,9 @@ public class AboutDialog extends MageDialog {
             + "mage-client.jar includes GPL-3.0-or-later code (CheckBoxList)<br>"
             + "and is conveyed under GPL-3.0-or-later; see LICENSES/.<br>"
             + "Also includes JSPF (no licence text) and deck data from mtgtop8<br>"
-            + "and the XMage sample decks. Card data by Scryfall (scryfall.com).<br>"
-            + "Card icons: Font Awesome Free (CC BY 4.0), Bootstrap Icons (MIT),<br>"
-            + "Pixabay Content License.<br>"
+            + "and the XMage sample decks. Card data provided by Scryfall.<br>"
+            + "Card icons include Font Awesome Free (Fonticons Inc., CC BY 4.0),<br>"
+            + "Bootstrap Icons (MIT) and Pixabay.<br>"
             + "Magic: The Gathering is a trademark of Wizards of the Coast. This<br>"
             + "project is not affiliated with, sponsored, or endorsed by Wizards<br>"
             + "of the Coast."

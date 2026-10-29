@@ -25,9 +25,9 @@ Context: pre-fix
 the reflection ran ON the game worker thread inside won()/lostForced()/quit();
 a >600s provider hang propagated through checkIfGameIsOver, the match was
 recorded as "Game is a draw" and game 2 never started (zombie table). Post-fix
-(ruling C, verbatim: "move reflection OFF the game thread (async): match +
-sideboard proceed immediately; failure = no postgame file, loud log") the
-reflection is handed to a bounded executor and the match proceeds immediately.
+the reflection is handed to a bounded executor and the match proceeds
+immediately: match + sideboard proceed, and a failure means no postgame file
+plus a loud log.
 
 Shape (adapted from the committed verify-llm-sideboard-live.py — same raw-WS
 protocol): owner (HUMAN) creates a Bo3 table with one COMPUTER_LLM seat
@@ -62,7 +62,7 @@ DECK_HUMAN = ("20 [M11:245] Mountain\n"
               "20 [3ED:201] Grizzly Bears\n")
 
 # Failure lines that must NOT appear in the server log during either leg: the
-# ruling-C contract is that reflection trouble degrades LOUDLY but never breaks
+# contract is that reflection trouble degrades LOUDLY but never breaks
 # the match — and the sideboard/postgame write paths must not fail either.
 SERVER_FAILURE_PATTERNS = (
     "Failed to generate post-game reflection",

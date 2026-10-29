@@ -86,7 +86,7 @@
             <directory>../</directory>
             <includes>
                 <include>LICENSE.txt</include>
-                <include>readme.md</include>
+                <include>README.md</include>
             </includes>
             <outputDirectory>/</outputDirectory>
         </fileSet>
@@ -105,7 +105,7 @@
             <filtered>true</filtered>
             <directory>${project.build.directory}/docs/</directory>
             <includes>
-                <include>readme.html</include>
+                <include>README.html</include>
             </includes>
             <outputDirectory>/</outputDirectory>
         </fileSet>

@@ -7,7 +7,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 /**
- * Unit test for the Rollback Turn fix (item 8, "the rollback button
+ * Unit test for the Rollback Turn fix ("the rollback button
  * isn't doing anything").
  *
  * Root cause: the game side only acts on PlayerAction.ROLLBACK_TURNS when the

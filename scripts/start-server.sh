@@ -59,6 +59,10 @@ LLM1_MODEL="${LLM1_MODEL:-gemma4:31b-cloud}"
 LLM1_ENDPOINT="${LLM1_ENDPOINT:-http://localhost:11434/v1/chat/completions}"
 LLM1_KEY="${LLM1_KEY:-}"
 LLM1_EFFORT="${LLM1_EFFORT:-high}"
+# Provider API dialect (frontier Phase 2):
+#   chat-completions (default) | openai-responses | anthropic-messages
+# An unknown value fails at seat construction (Fail Fast), never mid-game.
+LLM1_API_DIALECT="${LLM1_API_DIALECT:-chat-completions}"
 LLM1_STREAM="true"
 LLM1_VERBOSE="true"
 LLM1_CONCEDE="false"
@@ -72,6 +76,7 @@ LLM2_MODEL="${LLM2_MODEL:-deepseek-v4-flash:cloud}"
 LLM2_ENDPOINT="${LLM2_ENDPOINT:-http://localhost:11434/v1/chat/completions}"
 LLM2_KEY="${LLM2_KEY:-}"
 LLM2_EFFORT="${LLM2_EFFORT:-max}"
+LLM2_API_DIALECT="${LLM2_API_DIALECT:-chat-completions}"
 LLM2_STREAM="true"
 LLM2_VERBOSE="true"
 LLM2_CONCEDE="false"
@@ -163,6 +168,7 @@ exec java -Xmx"$SERVER_HEAP" \
   -Dxmage.llm.model="$LLM1_MODEL" \
   -Dxmage.llm.endpoint="$LLM1_ENDPOINT" \
   -Dxmage.llm.reasoningeffort="$LLM1_EFFORT" \
+  -Dxmage.llm.api_dialect="$LLM1_API_DIALECT" \
   -Dxmage.llm.reasoning_effort_levels="$LLM_EFFORT_LEVELS" \
   -Dxmage.llm.thinking_dialect="$LLM1_THINKING_DIALECT" \
   -Dxmage.llm.thinking_budget_tokens="$LLM1_THINKING_BUDGET" \
@@ -180,6 +186,7 @@ exec java -Xmx"$SERVER_HEAP" \
   -Dxmage.llm2.model="$LLM2_MODEL" \
   -Dxmage.llm2.endpoint="$LLM2_ENDPOINT" \
   -Dxmage.llm2.reasoningeffort="$LLM2_EFFORT" \
+  -Dxmage.llm2.api_dialect="$LLM2_API_DIALECT" \
   -Dxmage.llm2.reasoning_effort_levels="$LLM2_EFFORT_LEVELS" \
   -Dxmage.llm2.thinking_dialect="$LLM2_THINKING_DIALECT" \
   -Dxmage.llm2.thinking_budget_tokens="$LLM2_THINKING_BUDGET" \

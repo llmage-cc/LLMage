@@ -16,6 +16,10 @@
 #       one wrong-shape pre-save-bound record (must fire pre_save_unexpected) and
 #       one late-bound record into a clean artifact and asserts the walker detects
 #       all of them. Proves the harness discriminates (non-vacuity).
+#   [4] fixture — walks the committed save that carries the post-2026-09-30
+#       pre-game record shape (stateIndex 0, phaseStep "pre-game",
+#       scripts/fixtures/replay-pregame.game). The walk must
+#       skip those records; with the skip removed the same file fails as misbound.
 #
 # The harness compiles against the BUILT tree (module target/classes + the
 # local ~/.m2 mage jars), mirroring Mage.WebProxy/scripts/verify-rejoin-history.sh.
@@ -85,6 +89,17 @@ run() { # run a harness phase from $WORK (keeps ./saved + mageserver.log out of 
 
 run "phase [1] manufacture (Bo3, player-reuse path)" manufacture "$WORK/manufacture" 3 12,2,2
 run "phase [3] selftest (injected stale + misbound must be detected)" selftest "$WORK/selftest"
+
+# Phase [4]: the committed post-2026-09-30 shape. --require-pregame makes the
+# walk fail if it skipped no pre-game record, so the skip cannot go vacuous.
+FIXTURE="$WT/scripts/fixtures/replay-pregame.game"
+if [ ! -f "$FIXTURE" ]; then
+  echo
+  echo "ERROR: pre-game fixture missing: $FIXTURE" >&2
+  rc=1
+else
+  run "phase [4] fixture walk (post-2026-09-30 pre-game records)" walk --require-pregame "$FIXTURE"
+fi
 
 if [ "${#CORPORA[@]}" -gt 0 ]; then
   run "phase [2] walk (corpus)" walk "${CORPORA[@]}"

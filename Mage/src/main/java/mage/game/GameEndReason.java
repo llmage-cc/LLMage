@@ -19,6 +19,16 @@ public final class GameEndReason {
     /** LLMPlayer.concedeOnTerminalFailure — the seat's provider failed for good. */
     public static final String LLM_FAILURE = "llm_failure";
 
+    /**
+     * LLMPlayer.forfeitOnYesNoFormatDisobedience — the seat answered a strict
+     * yes/no prompt with prose after its bounded explicit corrections, so it
+     * forfeited the game. Recorded BEFORE the concede,
+     * so it survives PlayerImpl.concede's {@link #CONCEDE} stamp exactly like
+     * {@link #LLM_FAILURE}; clients must render it as a real loss, never as a
+     * technical win awarded by the engine.
+     */
+    public static final String LLM_FORMAT_FORFEIT = "llm_format_forfeit";
+
     /** A player conceded: the concede button, quit, timeout, idle or a forced concede. */
     public static final String CONCEDE = "concede";
 
@@ -30,6 +40,16 @@ public final class GameEndReason {
 
     /** The seat quit the match (MatchPlayer.hasQuit). */
     public static final String QUIT = "quit";
+
+    /**
+     * A critical server/game error ended the game
+     * ({@link mage.game.GameImpl#endWithTechnicalWinner(String)}): the engine had
+     * to award a winner so the match/tournament could continue, and picked one by
+     * life, then priority time left, then random. This records the ERROR, not a
+     * played-out result — clients must render it as the game ending on a server
+     * error, never as an ordinary victory.
+     */
+    public static final String TECHNICAL_ERROR = "technical_error";
 
     /** Nothing was recorded: a played-out win/draw, an old save, or an old producer. */
     public static final String UNKNOWN = "unknown";

@@ -815,7 +815,7 @@ public class NewTournamentDialog extends MageDialog {
                 table = null;
                 return;
             }
-            SessionHandler.watchTable(roomId, table.getTableId());
+            SessionHandler.watchTableWhenStarted(roomId, table.getTableId());
             doClose();
             return;
         } else {

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Emblem badge clickability gate (Momir Basic;
-# unactivatable-web.md). The frontend half of the fix: an emblem badge whose id
-# has a playable select choice must be clickable, visibly playable, and reach
+# Emblem badge clickability gate (Momir Basic). The frontend half of the fix: an
+# emblem badge whose id has a playable select choice must be clickable, visibly
+# playable, and reach
 # GameView's click path.
 #
 #   bash scripts/verify-emblem-badge-clickable.sh

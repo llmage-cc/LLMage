@@ -26,21 +26,12 @@ public class LLMClient {
     private static final Logger logger = Logger.getLogger(LLMClient.class);
     private static final Object STREAM_LOCK = new Object();
 
-    // Floor for a descended reasoning cap (thinking budget_tokens). Anthropic's
-    // native API requires budget_tokens >= 1024; the same floor keeps a descended
-    // cap sane wherever the thinking object is accepted.
-    private static final int MIN_REASONING_BUDGET_TOKENS = 1024;
-
-    // When the total output cap (max_tokens) is not configured but a reasoning
-    // cap rides on the request, the client emits max_tokens = cap * this factor so
-    // the answer is reserved at least as much output room as the reasoning stream
-    // is allowed. 620 empty answers came from request bodies that
-    // carried a 32768 reasoning budget with max_tokens omitted — nothing reserved
-    // room for the answer, so a reasoning blowout returned empty content. See
-    // LLMConfig.maxTokens / thinkingMaxTokens.
-    private static final int ANSWER_RESERVE_MULTIPLIER = 2;
+    /** Required by the native Messages API on every request. */
+    private static final String ANTHROPIC_VERSION = "2023-06-01";
 
     private final LLMConfig config;
+    /** Dialect mapper selected once from config.getApiDialect() — invisible above this class. */
+    private final DialectCodec codec;
     private PrintWriter transcriptWriter;
     private int exchangeCount = 0;
     private volatile Path transcriptGameDir = null;  // stored for post-game summary placement
@@ -228,6 +219,22 @@ public class LLMClient {
         public Integer turn;          // game turn number at time of prompt
         public String phaseStep;      // phase/step description at time of prompt
 
+        /**
+         * Raw provider content-block array (JSON) for an assistant turn that
+         * produced thinking blocks — anthropic-messages only, null otherwise.
+         * Anthropic requires thinking blocks to be replayed unchanged on the
+         * next turn; dropping them is an HTTP 400. NOT transient: this rides
+         * with the message through any serialization of the history.
+         */
+        public String contentBlocks;
+        /**
+         * True when this turn produced thinking blocks, i.e. the next request
+         * MUST carry {@link #contentBlocks}. Kept separately from the payload so
+         * a lost/cleared payload fails fast instead of silently dropping the
+         * blocks (Fail Fast, no shim).
+         */
+        public boolean contentBlocksRequired;
+
         public ConversationMessage(String role, String content) {
             this.role = role;
             this.content = content;
@@ -266,6 +273,9 @@ public class LLMClient {
 
     public LLMClient(LLMConfig config) {
         this.config = config;
+        // Fail Fast on an unknown apiDialect here — at the same time the seat is
+        // built — rather than on the first call deep in a game.
+        this.codec = DialectCodecs.forConfig(config);
         // Transcript init deferred to initTranscript() — called from LLMPlayer.useDeck()
         // when game ID and player name are available.
     }
@@ -459,7 +469,7 @@ public class LLMClient {
                 conversationHistory.add(new ConversationMessage("user", compactSummary, null,
                         promptType, turn, phaseStep));
                 String assistantContent = buildAssistantMessage(resp);
-                conversationHistory.add(new ConversationMessage("assistant", assistantContent));
+                addAssistantMessage(resp, assistantContent);
             }
 
             writeTranscript(conversationSystemPrompt != null
@@ -521,7 +531,7 @@ public class LLMClient {
             if (resp != null && resp.answer != null && !resp.answer.trim().isEmpty()) {
                 conversationHistory.add(new ConversationMessage("user", compactSummary, null,
                         promptType, turn, phaseStep));
-                conversationHistory.add(new ConversationMessage("assistant", buildAssistantMessage(resp)));
+                addAssistantMessage(resp, buildAssistantMessage(resp));
             }
 
             writeTranscript(conversationSystemPrompt != null
@@ -720,7 +730,17 @@ public class LLMClient {
         if (resp == null || resp.answer == null || !config.isAskReason()) return resp;
         String reason = LLMPlayer.extractStatedReason(resp.answer);
         if (reason == null || reason.isEmpty()) return resp;
-        return new LLMResponse(resp.thinking, resp.answer, resp.usage, reason, resp.finishReason);
+        return resp.withStatedReason(reason);
+    }
+
+    private void addAssistantMessage(LLMResponse resp, String content) {
+        ConversationMessage msg = new ConversationMessage("assistant", content);
+        // Anthropic round-trip: the blocks of a thinking-bearing turn must be
+        // replayed verbatim on the next request. Marking the requirement
+        // separately is what lets the codec Fail Fast if the payload is lost.
+        msg.contentBlocks = resp.contentBlocks;
+        msg.contentBlocksRequired = resp.contentBlocks != null;
+        conversationHistory.add(msg);
     }
 
     /**
@@ -750,10 +770,17 @@ public class LLMClient {
                 resp = parseResponse(responseJson);
             }
             resp = attachStatedReason(resp);
+            if (codec.requiresClientSideStop() && stopSequence != null
+                    && resp != null && resp.answer != null) {
+                // Dialects with no server-side stop parameter (Responses API)
+                // emulate the terse-answer cut client-side: the answer — and the
+                // history/transcript built from it — keeps only the first line.
+                resp = resp.withAnswer(DialectCodecs.firstLine(resp.answer));
+            }
             if (resp != null && resp.answer != null && !resp.answer.trim().isEmpty()) {
                 conversationHistory.add(new ConversationMessage("user", compactSummary, null,
                         promptType, turn, phaseStep));
-                conversationHistory.add(new ConversationMessage("assistant", buildAssistantMessage(resp)));
+                addAssistantMessage(resp, buildAssistantMessage(resp));
             }
             writeTranscript(conversationSystemPrompt != null
                     ? conversationSystemPrompt + "\n\n(conversation history, " + conversationHistory.size() + " msgs)"
@@ -780,39 +807,6 @@ public class LLMClient {
     }
 
     /**
-     * Whether the request builders emit the non-standard {@code thinking}
-     * object. It is an Ollama-family dialect feature: ollama-cloud consumes it
-     * (budget_tokens acts as a hard reasoning cap), while strict
-     * OpenAI-compatible gateways reject it as an unknown field with HTTP 400 —
-     * measured 2026-09-26 on opencode zen/go: {@code glm-5.3-flash} died with
-     * {@code invalid request body: json: unknown field "thinking"} while
-     * glm-5.3 / kimi-k2.6 / qwen3.8-max / space-bunny-free accepted the same
-     * body. Emit it only for Ollama-classified endpoints (the same heuristic
-     * context-window detection uses) or when the explicit budget dialect is
-     * configured — that dialect is object-based by definition, so its endpoint
-     * must accept the object or fail fast.
-     */
-    private boolean emitsThinkingObject() {
-        return emitsThinkingObjectAt(config.getApiEndpoint());
-    }
-
-    /**
-     * Endpoint-scoped form of {@link #emitsThinkingObject()} — used by
-     * buildRequestBodyConv so the thinking-object gate is evaluated against the
-     * endpoint the body will actually POST to.
-     */
-    private boolean emitsThinkingObjectAt(String endpoint) {
-        // Fail Fast: a null endpoint cannot be classified — isOllamaEndpoint
-        // would NPE. The gate must be decided explicitly, never guessed.
-        if (endpoint == null) {
-            throw new IllegalStateException("LLM apiEndpoint is null — cannot classify the"
-                    + " thinking-object dialect (set xmage.llm.endpoint / the GUI LLM config)");
-        }
-        return "budget".equals(config.getThinkingDialect())
-                || LLMConfig.isOllamaEndpoint(endpoint);
-    }
-
-    /**
      * Full request builder: effort override + optional stop sequence.
      * stopSequence, when non-null, is emitted as stop:["<seq>"] — the caller
      * uses "\\n" for terse-answer prompts (the answer must be a single line).
@@ -825,270 +819,36 @@ public class LLMClient {
     /**
      * Full request builder with an explicit no-thinking switch.
      * <p>
-     * noThinking=true emits NEITHER the {@code thinking} object NOR
-     * {@code reasoning_effort} for THIS call, so the entire output budget
-     * ({@code max_tokens}) is available to the answer stream. Used by the
-     * empty-answer ladder's FINAL attempt: after every effort-descent rung has
-     * returned an empty answer, disabling thinking is the last thing that can
-     * change the outcome — a reasoning blowout can never again consume the
-     * budget the answer needs.
-     * <p>
-     * The 4-arg overload above delegates here with noThinking=false, so the
-     * reflection-based body-shape tests (which resolve the 4-arg signature)
-     * keep seeing the thinking-enabled shape.
+     * The body is dialect-specific and lives in the codec selected from
+     * config.getApiDialect(); this method only assembles the neutral inputs.
+     * The chat-completions codec reproduces the historical body byte for byte.
      */
     private String buildRequestBodyConv(boolean stream, String currentFullPrompt, String effortOverride,
                                         String stopSequence, boolean noThinking) {
-        JsonObject root = new JsonObject();
-        root.addProperty("model", config.getModel());
-        if (config.isTemperatureEnabled()) {
-            root.addProperty("temperature", config.getTemperature());
-        }
+        return codec.buildConversationRequest(conversationRequest(
+                stream, currentFullPrompt, effortOverride, stopSequence, noThinking));
+    }
 
-        // Endpoint the body will be POSTed to — resolved ONCE so the
-        // thinking-object gate and the max_tokens reserve below agree on where
-        // this request goes (they must never disagree; a disagreement would put
-        // the answer reserve on a request the thinking object never reaches).
-        // Null is a misconfiguration — emitsThinkingObjectAt fails fast on it.
-        String endpoint = config.getApiEndpoint();
-
-        Integer reasoningBudget = null;   // the cap emitted as thinking.budget_tokens, or null
-        JsonObject thinking = null;
-        if (config.isThinkingEnabled() && !noThinking) {
-            thinking = new JsonObject();
-            thinking.addProperty("type", "enabled");
-            if ("budget".equals(config.getThinkingDialect())) {
-                // Budget dialect: the per-attempt override IS the ladder rung, so
-                // descent lowers the emitted cap directly.
-                reasoningBudget = (effortOverride != null)
-                        ? Integer.parseInt(effortOverride)
-                        : currentBudgetTokens();
-            } else {
-                String effort = (effortOverride != null) ? effortOverride : config.getReasoningEffort();
-                root.addProperty("reasoning_effort", effort);
-                // Hard reasoning cap in effort dialect (#7): verified accepted
-                // alongside reasoning_effort on ollama-cloud. Ollama-only — the cap
-                // rides INSIDE the thinking object, which strict OpenAI-compatible
-                // endpoints reject; there the cap falls back to the effort ladder
-                // (pre-batch-2 behavior).
-                if (config.getThinkingMaxTokens() > 0 && emitsThinkingObjectAt(endpoint)) {
-                    // The cap must track the per-attempt effort
-                    // override, not sit pinned at thinkingMaxTokens. The descent
-                    // ladder lowers the rung each empty-answer retry; scaling the
-                    // cap by how far below the configured effort that rung is makes
-                    // the descent actually shrink the reasoning allowance instead
-                    // of only changing the advisory reasoning_effort string.
-                    reasoningBudget = effortDescentScaledBudget(effort);
-                }
-            }
-            if (reasoningBudget != null) {
-                thinking.addProperty("budget_tokens", reasoningBudget);
-            }
-            // The thinking object is an Ollama-family extension (budget dialect
-            // is object-based by definition; effort dialect emits it only for
-            // Ollama-classified endpoints). See emitsThinkingObjectAt().
-            if (emitsThinkingObjectAt(endpoint)) {
-                root.add("thinking", thinking);
-            }
-        }
-
-        // Total output cap. When max_tokens is configured it is authoritative;
-        // otherwise, if this request also carries a reasoning cap, reserve output
-        // room for the ANSWER with max_tokens = reasoning cap * factor. The old
-        // body emitted {"budget_tokens":32768} with NO
-        // max_tokens, so a reasoning blowout consumed the whole output window and
-        // content came back empty (620 occurrences, ~+45% calls). The answer now
-        // always gets at least as much output room as the reasoning stream is
-        // allowed. (On strict OpenAI-compatible endpoints no reasoning cap is
-        // emitted, so this branch is inert there and reasoning_effort stands alone.)
-        if (config.getMaxTokens() > 0) {
-            root.addProperty("max_tokens", config.getMaxTokens());
-        } else if (reasoningBudget != null) {
-            root.addProperty("max_tokens", reasoningBudget * ANSWER_RESERVE_MULTIPLIER);
-        }
-
-        root.addProperty("stream", stream);
-
-        JsonArray messages = new JsonArray();
-
-        JsonObject sysMsg = new JsonObject();
-        sysMsg.addProperty("role", "system");
-        sysMsg.addProperty("content", conversationSystemPrompt);
-        messages.add(sysMsg);
-
-        // Inject summarized history as system context so the LLM sees compressed game history
-        if (summarizedHistory != null && !summarizedHistory.isEmpty()) {
-            JsonObject sumMsg = new JsonObject();
-            sumMsg.addProperty("role", "system");
-            // Minor consistency: plain label instead of the old
-            // "=== SUMMARIZED GAME HISTORY ===" banner (the banner-style
-            // ===...=== marker is reserved for prompt sections the system prompt
-            // documents; this is injected context, not a prompt section).
-            sumMsg.addProperty("content", "Prior game summary:\n" + summarizedHistory);
-            messages.add(sumMsg);
-        }
-
+    /** Neutral view of the conversation state for the dialect codec. */
+    private DialectCodec.ConversationHistory conversationRequest(boolean stream, String currentFullPrompt,
+                                                                String effortOverride, String stopSequence,
+                                                                boolean noThinking) {
+        List<DialectCodec.Turn> turns = new ArrayList<>();
         for (ConversationMessage cm : conversationHistory) {
-            JsonObject msg = new JsonObject();
-            msg.addProperty("role", cm.role);
-            msg.addProperty("content", cm.effectiveContent());
-            messages.add(msg);
+            turns.add(new DialectCodec.Turn(cm.role, cm.effectiveContent(),
+                    cm.contentBlocks, cm.contentBlocksRequired));
         }
-
-        JsonObject userMsg = new JsonObject();
-        userMsg.addProperty("role", "user");
-        userMsg.addProperty("content", currentFullPrompt);
-        messages.add(userMsg);
-
-        root.add("messages", messages);
-        if (stopSequence != null) {
-            JsonArray stop = new JsonArray();
-            stop.add(stopSequence);
-            root.add("stop", stop);
-        }
-        if (stream) {
-            // Ask the provider to append a final usage-only chunk to the stream so
-            // we get real token counts for streaming calls too (OpenAI-compatible:
-            // stream_options.include_usage). Providers that don't support the field
-            // ignore it; the parser tolerates a missing usage chunk (null usage).
-            JsonObject streamOptions = new JsonObject();
-            streamOptions.addProperty("include_usage", true);
-            root.add("stream_options", streamOptions);
-        }
-        return new Gson().toJson(root);
+        return new DialectCodec.ConversationHistory(config, conversationSystemPrompt, summarizedHistory,
+                turns, currentFullPrompt, stream, effortOverride, stopSequence, noThinking);
     }
 
     protected String buildRequestBody(String systemPrompt, String userPrompt, boolean stream) {
-        JsonObject root = new JsonObject();
-        root.addProperty("model", config.getModel());
-        if (config.isTemperatureEnabled()) {
-            root.addProperty("temperature", config.getTemperature());
-        }
-        if (config.getMaxTokens() > 0) {
-            root.addProperty("max_tokens", config.getMaxTokens());
-        }
-        root.addProperty("stream", stream);
-
-        if (config.isThinkingEnabled()) {
-            JsonObject thinking = new JsonObject();
-            thinking.addProperty("type", "enabled");
-            if ("budget".equals(config.getThinkingDialect())) {
-                thinking.addProperty("budget_tokens", currentBudgetTokens());
-            } else {
-                root.addProperty("reasoning_effort", config.getReasoningEffort());
-                if (config.getThinkingMaxTokens() > 0 && emitsThinkingObject()) {
-                    thinking.addProperty("budget_tokens", config.getThinkingMaxTokens());
-                }
-            }
-            if (emitsThinkingObject()) {
-                root.add("thinking", thinking);
-            }
-        }
-
-        JsonArray messages = new JsonArray();
-
-        JsonObject sysMsg = new JsonObject();
-        sysMsg.addProperty("role", "system");
-        sysMsg.addProperty("content", systemPrompt);
-        messages.add(sysMsg);
-
-        JsonObject userMsg = new JsonObject();
-        userMsg.addProperty("role", "user");
-        userMsg.addProperty("content", userPrompt);
-        messages.add(userMsg);
-
-        root.add("messages", messages);
-        return new Gson().toJson(root);
+        return codec.buildSimpleRequest(config, systemPrompt, userPrompt, stream, false);
     }
 
-    /** Build a request body with thinking explicitly disabled.
-     *  Used for summarization calls where we want a direct answer, not reasoning.
-     *  The thinking object is Ollama-family-only (see emitsThinkingObject): on
-     *  strict OpenAI-compatible endpoints an unknown field 400s, so there the
-     *  field is omitted entirely — the call simply doesn't ask for reasoning
-     *  (models may still emit reasoning_content by default; the parser keeps it).
-     *  The budget dialect keeps the object — its endpoints accept it by
-     *  definition, and it's the only way to express "disabled" there. */
+    /** Build a request body with thinking explicitly disabled (summarization one-shot) — dialect-shaped by the codec. */
     protected String buildRequestBodyNoThinking(String systemPrompt, String userPrompt, boolean stream) {
-        JsonObject root = new JsonObject();
-        root.addProperty("model", config.getModel());
-        if (config.isTemperatureEnabled()) {
-            root.addProperty("temperature", config.getTemperature());
-        }
-        if (config.getMaxTokens() > 0) {
-            root.addProperty("max_tokens", config.getMaxTokens());
-        }
-        root.addProperty("stream", stream);
-
-        // Explicitly disable thinking (Ollama-classified endpoints and the
-        // budget dialect only — strict OpenAI-compatible endpoints reject the
-        // unknown field; see emitsThinkingObject).
-        if (emitsThinkingObject()) {
-            JsonObject thinking = new JsonObject();
-            thinking.addProperty("type", "disabled");
-            root.add("thinking", thinking);
-        }
-
-        JsonArray messages = new JsonArray();
-
-        JsonObject sysMsg = new JsonObject();
-        sysMsg.addProperty("role", "system");
-        sysMsg.addProperty("content", systemPrompt);
-        messages.add(sysMsg);
-
-        JsonObject userMsg = new JsonObject();
-        userMsg.addProperty("role", "user");
-        userMsg.addProperty("content", userPrompt);
-        messages.add(userMsg);
-
-        root.add("messages", messages);
-        return new Gson().toJson(root);
-    }
-
-    /** Current thinking budget for the "budget" dialect — first ladder entry. */
-    private int currentBudgetTokens() {
-        List<Integer> ladder = config.getThinkingBudgetTokens();
-        if (ladder == null || ladder.isEmpty()) {
-            throw new IllegalStateException("thinkingDialect=budget but thinkingBudgetTokens ladder is empty");
-        }
-        return ladder.get(0);
-    }
-
-    /**
-     * The effort-dialect reasoning cap actually emitted as
-     * {@code thinking.budget_tokens}, scaled by how far the per-attempt effort
-     * rung has descended. The cap used to be pinned at
-     * {@link LLMConfig#getThinkingMaxTokens()} on every attempt, so the
-     * empty-answer effort descent lowered only the advisory {@code
-     * reasoning_effort} string while the reasoning allowance stayed maximal — the
-     * loop could only be broken by lexical nudging and one seat burned all five
-     * attempts then conceded. Scaling the cap by the rung's position in the
-     * configured effort ladder makes the descent genuinely shrink the reasoning
-     * allowance.
-     *
-     * <p>Anchor = the CONFIGURED effort rung (the rung attempt 1 runs at), exactly
-     * as {@code LLMPlayer.effortForAttempt} defines the descent: attempt 1 emits
-     * the full cap, and each rung the retry ladder descends below the configured
-     * effort emits proportionally less down to {@link #MIN_REASONING_BUDGET_TOKENS}
-     * at the ladder's lowest rung (so it never reaches 0/negative and always stays a
-     * valid reasoning cap). When the effort is not in the ladder (custom per-model
-     * value) or no descent below the configured rung is possible, there is no
-     * ordering to scale by, so the full configured cap is used — same "no guessing"
-     * policy {@code LLMPlayer.effortForAttempt} documents for the descent itself.
-     */
-    private int effortDescentScaledBudget(String effort) {
-        int cap = config.getThinkingMaxTokens();
-        List<String> ladder = config.getReasoningEffortLevels();
-        if (ladder == null) return cap;
-        int rung = ladder.indexOf(effort);                          // 0 = highest effort
-        int configuredRung = ladder.indexOf(config.getReasoningEffort());
-        // No descent (attempt 1, or an effort the ladder can't order): the full cap.
-        if (rung < 0 || configuredRung < 0 || rung <= configuredRung) return cap;
-        int span = ladder.size() - 1 - configuredRung;             // rungs below configured
-        if (span <= 0) return cap;                                 // configured effort is the lowest rung
-        int descended = rung - configuredRung;
-        int scaled = (int) ((long) cap * (span - descended) / span);
-        return Math.max(scaled, MIN_REASONING_BUDGET_TOKENS);
+        return codec.buildSimpleRequest(config, systemPrompt, userPrompt, stream, true);
     }
 
     /**
@@ -1132,7 +892,7 @@ public class LLMClient {
                 java.util.UUID.fromString(bridgeGameId),
                 bridgePlayerName,
                 requestBody,
-                config.getApiEndpoint(),
+                codec.resolveEndpoint(config),
                 false,  // stream — see shouldStream(): always false on this path
                 config.getTimeoutSeconds(),
                 config.getClientKeyTag(),
@@ -1184,29 +944,44 @@ public class LLMClient {
         }
     }
 
+    /**
+     * Provider auth/routing headers. Bearer everywhere (all our gateways), plus
+     * the native Anthropic pair — x-api-key and anthropic-version — for the
+     * anthropic-messages dialect, whose API rejects Bearer-only auth.
+     */
+    private void applyProviderHeaders(HttpURLConnection conn, String endpoint) {
+        if (config.getApiKey() != null && !config.getApiKey().isEmpty()) {
+            conn.setRequestProperty("Authorization", "Bearer " + config.getApiKey());
+            if (codec.dialect() == ApiDialect.ANTHROPIC_MESSAGES) {
+                conn.setRequestProperty("x-api-key", config.getApiKey());
+            }
+        }
+        if (codec.dialect() == ApiDialect.ANTHROPIC_MESSAGES) {
+            conn.setRequestProperty("anthropic-version", ANTHROPIC_VERSION);
+        }
+        // opencode zen/go routes per-session and 400s without this header
+        // ("MissingSessionID", measured live 2026-09-30 on prod game
+        // 97845334). Stable per-seat value so one seat's calls share a session.
+        if (endpoint != null && endpoint.contains("opencode.ai")) {
+            conn.setRequestProperty("x-opencode-session",
+                    "llmage-" + Integer.toHexString(sessionIdentity().hashCode()));
+        }
+    }
+
     protected String sendRequest(String requestBody) throws IOException,
             java.util.concurrent.TimeoutException {
         if (config.isUseClientKey()) {
             return sendViaBridge(requestBody);
         }
-        URI uri = URI.create(config.getApiEndpoint());
+        String endpoint = codec.resolveEndpoint(config);
+        URI uri = URI.create(endpoint);
         URL url = uri.toURL();
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Content-Type", "application/json");
         conn.setRequestProperty("Accept", "application/json");
 
-        if (config.getApiKey() != null && !config.getApiKey().isEmpty()) {
-            conn.setRequestProperty("Authorization", "Bearer " + config.getApiKey());
-        }
-        // opencode zen/go routes per-session and 400s without this header
-        // ("MissingSessionID", measured live). Stable per-seat value
-        // so one seat's calls share a session.
-        if (config.getApiEndpoint() != null
-                && config.getApiEndpoint().contains("opencode.ai")) {
-            conn.setRequestProperty("x-opencode-session",
-                    "llmage-" + Integer.toHexString(sessionIdentity().hashCode()));
-        }
+        applyProviderHeaders(conn, endpoint);
 
         conn.setDoOutput(true);
         conn.setConnectTimeout(config.getTimeoutSeconds() * 1000);
@@ -1245,24 +1020,14 @@ public class LLMClient {
     }
 
     protected LLMResponse sendStreamingRequest(String requestBody) throws IOException {
-        URI uri = URI.create(config.getApiEndpoint());
+        String endpoint = codec.resolveEndpoint(config);
+        URI uri = URI.create(endpoint);
         URL url = uri.toURL();
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Content-Type", "application/json");
         conn.setRequestProperty("Accept", "text/event-stream");
-
-        if (config.getApiKey() != null && !config.getApiKey().isEmpty()) {
-            conn.setRequestProperty("Authorization", "Bearer " + config.getApiKey());
-        }
-        // opencode zen/go routes per-session and 400s without this header
-        // ("MissingSessionID", measured live 2026-09-30). Same seat-stable value
-        // as sendRequest.
-        if (config.getApiEndpoint() != null
-                && config.getApiEndpoint().contains("opencode.ai")) {
-            conn.setRequestProperty("x-opencode-session",
-                    "llmage-" + Integer.toHexString(sessionIdentity().hashCode()));
-        }
+        applyProviderHeaders(conn, endpoint);
 
         conn.setDoOutput(true);
         conn.setConnectTimeout(config.getTimeoutSeconds() * 1000);
@@ -1282,11 +1047,7 @@ public class LLMClient {
             throw new HttpStatusException(status, errBody, retryAfterHeader);
         }
 
-        StringBuilder content = new StringBuilder();
-        StringBuilder reasoning = new StringBuilder();
         String modelName = config.getModel().replaceAll("[:/].*", "");
-        final LLMResponse.Usage[] usageHolder = new LLMResponse.Usage[1];
-        final String[] finishReasonHolder = new String[1];
 
         // Signal streaming start — watcher thread will see these
         streamingStartedAt = System.currentTimeMillis();
@@ -1294,10 +1055,33 @@ public class LLMClient {
         streamingReasoning = "";
         streamingContent = "";
 
-        boolean reasoningPhase = true;
+        final boolean[] reasoningPhase = {true};
+        DialectCodec.StreamListener listener = new DialectCodec.StreamListener() {
+            @Override
+            public void onReasoning(String token) {
+                synchronized (STREAM_LOCK) {
+                    streamingReasoning = (streamingReasoning == null ? "" : streamingReasoning) + token;
+                    if (reasoningPhase[0]) System.out.print(token);
+                }
+            }
+
+            @Override
+            public void onContent(String token) {
+                synchronized (STREAM_LOCK) {
+                    streamingContent = (streamingContent == null ? "" : streamingContent) + token;
+                    if (reasoningPhase[0] && streamingReasoning != null && !streamingReasoning.isEmpty()) {
+                        System.out.println("\n--- ANSWER ---");
+                        reasoningPhase[0] = false;
+                    }
+                    System.out.print(token);
+                }
+            }
+        };
+
         synchronized (STREAM_LOCK) {
             System.out.println("\n=== LLM STREAM [" + modelName + "] ===");
         }
+        DialectCodec.StreamParser parser = codec.newStreamParser(config, listener);
         try {
             BufferedReader br = new BufferedReader(
                     new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
@@ -1306,53 +1090,7 @@ public class LLMClient {
                 while ((line = br.readLine()) != null) {
                     if (line.isEmpty()) continue;
                     if (!line.startsWith("data: ")) continue;
-
-                    String data = line.substring(6).trim();
-                    if ("[DONE]".equals(data)) break;
-
-                    try {
-                        JsonObject chunk = JsonParser.parseString(data).getAsJsonObject();
-                        // Final usage-only chunk (stream_options.include_usage): has
-                        // no choices. Capture it — real token counts per decision.
-                        if (usageHolder[0] == null && (chunk.has("usage") && !chunk.get("usage").isJsonNull())) {
-                            usageHolder[0] = parseUsage(chunk);
-                            continue;
-                        }
-                        JsonArray choices = chunk.getAsJsonArray("choices");
-                        if (choices == null || choices.isEmpty()) continue;
-
-                        JsonObject choice = choices.get(0).getAsJsonObject();
-                        // finish_reason arrives on (usually) the final chunk; keep
-                        // the last non-null so an empty answer can be diagnosed.
-                        String fr = getStringOrNull(choice, "finish_reason");
-                        if (fr != null) finishReasonHolder[0] = fr;
-                        JsonObject delta = choice.getAsJsonObject("delta");
-                        if (delta == null) continue;
-
-                        String rToken = getStringOrNull(delta, "reasoning_content");
-                        if (rToken == null) rToken = getStringOrNull(delta, "reasoning");
-                        String cToken = getStringOrNull(delta, "content");
-                        if (rToken != null || cToken != null) {
-                            synchronized (STREAM_LOCK) {
-                                if (rToken != null && !rToken.isEmpty()) {
-                                    reasoning.append(rToken);
-                                    streamingReasoning = reasoning.toString();
-                                    if (reasoningPhase) System.out.print(rToken);
-                                }
-                                if (cToken != null && !cToken.isEmpty()) {
-                                    content.append(cToken);
-                                    streamingContent = content.toString();
-                                    if (reasoningPhase && reasoning.length() > 0) {
-                                        System.out.println("\n--- ANSWER ---");
-                                        reasoningPhase = false;
-                                    }
-                                    System.out.print(cToken);
-                                }
-                            }
-                        }
-                    } catch (JsonSyntaxException e) {
-                        logger.debug("Skipped malformed SSE chunk: " + e.getMessage());
-                    }
+                    if (!parser.accept(line.substring(6).trim())) break;
                 }
             } finally {
                 try { br.close(); } catch (IOException e) {
@@ -1361,7 +1099,7 @@ public class LLMClient {
             }
         } finally {
             conn.disconnect();
-            // ALWAYS clear streaming state — even if exception killed the stream
+            // ALWAYS clear streaming state — even if an exception killed the stream
             streamingInProgress = false;
             streamingReasoning = null;
             streamingContent = null;
@@ -1373,54 +1111,16 @@ public class LLMClient {
             System.out.println("=== END STREAM [" + modelName + "] ===");
         }
 
-        LLMResponse resp = new LLMResponse(reasoning.toString(), content.toString(),
-                usageHolder[0], null, finishReasonHolder[0]);
+        LLMResponse resp = parser.finish();
         if (resp.usage != null && config.isVerboseLogging()) {
             logger.info("LLM (stream) " + resp.usage);
         }
         return resp;
     }
 
+
     protected LLMResponse parseResponse(String responseBody) {
-        try {
-            JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
-            LLMResponse.Usage usage = parseUsage(root);
-            JsonArray choices = root.getAsJsonArray("choices");
-            if (choices != null && choices.size() > 0) {
-                JsonObject firstChoice = choices.get(0).getAsJsonObject();
-                JsonObject message = firstChoice.getAsJsonObject("message");
-                if (message != null) {
-                    String content = getStringOrNull(message, "content");
-                    // reasoning_content is the OpenAI/DeepSeek-compatible field
-                    // (message.reasoning_content); `reasoning` and the
-                    // choices[0].reasoning_content placement are provider variants
-                    // (ollama-cloud). Check all three — the old code missed
-                    // message.reasoning_content entirely, silently dropping the
-                    // reasoning of every non-streaming DeepSeek/zen response.
-                    String reasoning = getStringOrNull(message, "reasoning_content");
-                    if (reasoning == null || reasoning.isEmpty()) {
-                        reasoning = getStringOrNull(message, "reasoning");
-                    }
-                    if (reasoning == null || reasoning.isEmpty()) {
-                        reasoning = getStringOrNull(firstChoice, "reasoning_content");
-                    }
-                    // finish_reason was never read before the glm-5.3-flash@zen
-                    // terminal empty-answer investigation — without
-                    // it, "truncated at max_tokens" (finish_reason=length) and
-                    // "stopped with empty content" (finish_reason=stop) were
-                    // indistinguishable from a provider hiccup.
-                    String finishReason = getStringOrNull(firstChoice, "finish_reason");
-                    LLMResponse resp = new LLMResponse(reasoning, content, usage, null, finishReason);
-                    if (usage != null && config.isVerboseLogging()) {
-                        logger.info("LLM " + usage);
-                    }
-                    return resp;
-                }
-            }
-            throw new RuntimeException("Unexpected LLM response format: " + responseBody);
-        } catch (Throwable t) {
-            throw new RuntimeException("Failed to parse LLM response: " + t.getMessage(), t);
-        }
+        return codec.parseResponse(config, responseBody);
     }
 
     /**
@@ -1722,7 +1422,7 @@ public class LLMClient {
     }
 
     // ==================================================================
-    // ASYNC POST-GAME REFLECTION HANDOFF
+    // ASYNC POST-GAME REFLECTION PATH
     // ==================================================================
 
     /**

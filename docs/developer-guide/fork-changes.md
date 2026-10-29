@@ -28,11 +28,12 @@ LLMage is a fork of XMage 1.4.62. It keeps the upstream rules engine, card set, 
 - spell side for modal double-faced, split, and adventure cards
 - voluntary concession as a priority-menu action
 
-Each decision is rendered into a text prompt by `LLMGameSerializer`, sent to an OpenAI-compatible endpoint by `LLMClient`, parsed, validated, and executed. A rejected action is retried with the engine's rejection reason; a model that keeps choosing an illegal action passes priority and logs a fatal error instead of killing the match.
+Each decision is rendered into a text prompt by `LLMGameSerializer`, sent to the provider by `LLMClient` through the configured API-dialect codec, parsed, validated, and executed. A rejected action is retried with the engine's rejection reason; a model that keeps choosing an illegal action passes priority and logs a fatal error instead of killing the match.
 
 The plugin also adds:
 
 - **Conversation memory.** Prior decisions travel as compact summaries. Long games are summarized when they approach the model's context window, with the most recent exchanges kept verbatim.
+- **API dialects.** A per-seat wire-dialect codec layer (`ApiDialect` + `DialectCodec`) speaks OpenAI-compatible chat-completions (the default), the OpenAI Responses API, or the Anthropic Messages API, deriving the endpoint path and the thinking request shape per dialect. Everything above `LLMClient` is dialect-agnostic.
 - **Thinking control.** A per-model dialect selects `reasoning_effort` or a `thinking` budget object, with a descent ladder for empty answers and a final attempt that disables thinking.
 - **Retries.** Five attempts for 429, 5xx, I/O errors, and empty answers, honoring `Retry-After` and otherwise backing off from 2 to 32 seconds. Other 4xx errors fail immediately.
 - **Transcripts.** Every exchange can be written to a per-game text file, including the system prompt, the user prompt, reasoning, and the final answer.

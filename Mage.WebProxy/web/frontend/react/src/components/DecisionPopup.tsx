@@ -18,9 +18,9 @@ import type {
 } from '@/types'
 
 /**
- * DecisionPopup — THE mid-screen priority window (item 2: "make the
- * mulligan decision and pass priority and similar popups show up in a window
- * mid screen so they can't be missed").
+ * DecisionPopup — THE mid-screen priority window: the mulligan decision and
+ * pass priority and similar popups show up in a window mid screen so they
+ * can't be missed.
  *
  * Anchor for a play_mana window: BOTTOM-RIGHT of the viewport (the mana auto-pay
  * window "can just be bottom right") — it is a control
@@ -511,9 +511,8 @@ function PlayManaBody({ prompt }: { prompt: PlayManaPromptType }) {
       )}
       <div className="prompt-mana-buttons">
         {/* The label stays EXACTLY "Auto-Tap Lands" for the whole run — automated UI tests
-            locate this control by its text (skill refs: browser-ui-test-harness,
-            webui-testing-recipes). Progress is exposed as data-autotap-active instead of by
-            changing the label mid-run. */}
+            locate this control by its text. Progress is exposed as data-autotap-active
+            instead of by changing the label mid-run. */}
         <button
           className="btn btn-primary btn-sm"
           data-autotap-active={run.active ? 'true' : 'false'}

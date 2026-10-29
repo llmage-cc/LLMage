@@ -12,7 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public interface TournamentManager {
     Optional<TournamentController> getTournamentController(UUID tournamentId);
 
-    void createTournamentSession(Tournament tournament, ConcurrentHashMap<UUID, UUID> userPlayerMap, UUID tableId);
+    void createTournamentSession(Tournament tournament, ConcurrentHashMap<UUID, UUID> userPlayerMap, UUID tableId, UUID ownerUserId);
 
     void joinTournament(UUID tournamentId, UUID userId);
 

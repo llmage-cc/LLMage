@@ -22,8 +22,8 @@ export interface ConnectFormState {
 }
 
 /**
- * Persistent browser ID for the shared-IP problem (
- * official-shared-ip.md Mitigation 2). Stored in localStorage so it survives
+ * Persistent browser ID for the shared-IP problem (many players behind one
+ * NAT address). Stored in localStorage so it survives
  * refreshes; sent to the proxy as `browserId` so the XMage server sees a
  * stable per-user string instead of an empty `userIdStr`.
  *

@@ -11,7 +11,9 @@ LLM-powered AI opponents.
 Three areas of work:
 
 1. **LLM Player plugin** (`Mage.Server.Plugins/Mage.Player.LLM/`) — server-side AI player
-   that delegates game decisions to an external LLM via OpenAI-compatible API. Extends
+   that delegates game decisions to an external LLM through a configurable provider API
+   (OpenAI-compatible chat-completions by default; OpenAI Responses and Anthropic Messages
+   dialects are built in). Extends
    `ComputerPlayer`, not the client.
 2. **Web client** (`Mage.WebProxy/`) — Jetty WebSocket proxy serving a React frontend,
    bridging browsers to the XMage server. Backend: `mvn -pl Mage.WebProxy install

@@ -17,7 +17,7 @@
  *    pinned as clicked/cycled.
  *
  * Both toggles coexist — Focus wins while a focus target is set; maximize
- * applies otherwise (item 4 of the approved design).
+ * applies otherwise.
  *
  * This module is shared by the live board AND the replay viewer by construction:
  * the shell component (GameLayout) resolves the mode HERE from the board state

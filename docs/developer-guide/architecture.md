@@ -48,7 +48,7 @@ flowchart LR
 | `Mage.WebProxy` | Serves the React client; one `SessionImpl` per browser socket | 8090 |
 | `Mage.Client` | Swing desktop client; connects to the server directly | none |
 | LLM plugin | Server-side player plugin JAR | none |
-| LLM endpoint | OpenAI-compatible chat API | provider-defined |
+| LLM endpoint | OpenAI-compatible chat API (default), OpenAI Responses, or Anthropic Messages | provider-defined |
 
 The desktop client and the web proxy both speak to the server through `mage.remote.SessionImpl` in `Mage.Common`. The transport is JBoss Remoting over a bisocket connection, and the payloads are Java-serialized objects. The browser exchanges JSON with the proxy over a WebSocket; the proxy translates.
 

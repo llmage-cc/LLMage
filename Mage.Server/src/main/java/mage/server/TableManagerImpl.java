@@ -66,6 +66,16 @@ public class TableManagerImpl implements TableManager {
     }
 
     @Override
+    public Table createTournamentMatchTable(UUID roomId, UUID llmSeatOwnerUserId, MatchOptions options) {
+        // userId stays null: a sub-table has no owner for permissions/teardown. The
+        // tournament creator rides along as the LLM-seat owner only (client-key routing).
+        TableController tableController = new TableController(managerFactory, roomId, null, llmSeatOwnerUserId, options);
+        putControllers(tableController.getTable().getId(), tableController);
+        putTables(tableController.getTable().getId(), tableController.getTable());
+        return tableController.getTable();
+    }
+
+    @Override
     public Table createTournamentTable(UUID roomId, UUID userId, TournamentOptions options) {
         TableController tableController = new TableController(managerFactory, roomId, userId, options);
         putControllers(tableController.getTable().getId(), tableController);
@@ -203,6 +213,12 @@ public class TableManagerImpl implements TableManager {
         }
     }
 
+    /**
+     * UUID-only on purpose. This predicate also gates {@link #swapSeats} and the client-visible
+     * {@code tableIsOwner} RPC (which drives the Start / Move-seats controls), so widening it
+     * would hand a reconnected creator seat and start control as well. The deletion rule that
+     * additionally accepts the creator account NAME lives in {@link #canRemoveTable(UUID, UUID)}.
+     */
     @Override
     public boolean isTableOwner(UUID tableId, UUID userId) {
         if (controllers.containsKey(tableId)) {
@@ -213,7 +229,7 @@ public class TableManagerImpl implements TableManager {
 
     @Override
     public boolean removeTable(UUID userId, UUID tableId) {
-        if (isTableOwner(tableId, userId) || managerFactory.userManager().isAdmin(userId)) {
+        if (canRemoveTable(tableId, userId) || managerFactory.userManager().isAdmin(userId)) {
             logger.debug("Table remove request - userId: " + userId + " tableId: " + tableId);
             TableController tableController = controllers.get(tableId);
             if (tableController != null) {
@@ -224,6 +240,72 @@ public class TableManagerImpl implements TableManager {
             return true;
         }
         return false;
+    }
+
+    /**
+     * May this user DELETE this table?
+     *
+     * <p>Two ways to own it for deletion only: the creator's own session user id (the unchanged
+     * {@link #isTableOwner} rule), or - when a reconnect minted a NEW user id for the same
+     * account - the account name the table was created under
+     * ({@link Table#getControllerName()}), which is exactly what the lobby's can-remove hint
+     * already compares.
+     *
+     * <p>Deliberately NOT {@link #isTableOwner}: see that method for why this must stay out of it.
+     * Account names are unique on the server ({@code UserManagerImpl.createUser} refuses a
+     * duplicate), so the name leg can only ever identify the account that created the table.
+     */
+    private boolean canRemoveTable(UUID tableId, UUID userId) {
+        TableController controller = controllers.get(tableId);
+        if (controller == null) {
+            return false;
+        }
+        UUID creatorUserId = controller.getCreatorUserId();
+        if (userId == null || creatorUserId == null || userId.equals(creatorUserId)) {
+            // No name can decide these: no session user at all, a creatorless table (a
+            // sub-table's "System" display name is not an account), or the creator's own
+            // session. Answer without touching the user manager.
+            return canRemoveTable(creatorUserId, null, userId, null);
+        }
+        // Only the account name can still save this request (a reconnect minted a new user id),
+        // so pay for the lookup only here. An unknown user answers empty -> no name -> no match.
+        // A lookup that THROWS is not swallowed: the request fails loudly instead of quietly
+        // denying the delete.
+        String requesterName = managerFactory.userManager().getUser(userId)
+                .map(User::getName)
+                .orElse(null);
+        Table table = controller.getTable();
+        return canRemoveTable(creatorUserId, table == null ? null : table.getControllerName(),
+                userId, requesterName);
+    }
+
+    /**
+     * The pure form of {@link #canRemoveTable(UUID, UUID)}: no manager lookup, so the exact rule
+     * the deletion path applies is testable on its own.
+     *
+     * <p>Fail-fast rules: a null requesting user id never matches; a table with no creator user
+     * (tournament sub-table, anonymous table) has no ACCOUNT behind its display name - "System"
+     * must never authorize a delete - so the name leg needs a real creator id; a null or blank
+     * name on either side never matches.
+     */
+    static boolean canRemoveTable(UUID creatorUserId, String creatorName, UUID userId, String requesterName) {
+        if (userId == null) {
+            return false;
+        }
+        if (userId.equals(creatorUserId)) {
+            return true; // the creator's own session, unchanged
+        }
+        if (creatorUserId == null) {
+            return false; // ownerless table: a display name is not an account
+        }
+        if (isBlank(creatorName) || isBlank(requesterName)) {
+            return false;
+        }
+        return creatorName.equals(requesterName);
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 
     @Override

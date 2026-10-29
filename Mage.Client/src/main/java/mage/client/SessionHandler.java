@@ -354,6 +354,32 @@ public final class SessionHandler {
         session.watchTable(roomId, tableId);
     }
 
+    /**
+     * Watch a table that was just started by the client.
+     * <p>
+     * The server refuses a table watch until the table is DUELING
+     * ({@code TableController.watchTable}), while startMatch/startTournament only
+     * queue the start — so an immediate watch is refused and the creator of an
+     * AI-only game would never see it. Retry on the EDT until the server accepts
+     * the watch, bounded so a failed start does not poll forever.
+     */
+    public static void watchTableWhenStarted(UUID roomId, UUID tableId) {
+        final int maxAttempts = 50;
+        final int[] attempts = {0};
+        final javax.swing.Timer timer = new javax.swing.Timer(300, null);
+        timer.addActionListener(e -> {
+            attempts[0]++;
+            if (session != null && session.watchTable(roomId, tableId)) {
+                timer.stop();
+            } else if (attempts[0] >= maxAttempts) {
+                logger.warn("Could not watch table " + tableId + " after " + maxAttempts + " attempts");
+                timer.stop();
+            }
+        });
+        timer.setRepeats(true);
+        timer.start();
+    }
+
     public static Collection<TableView> getTables(UUID roomId) {
         try {
             return session.getTables(roomId);

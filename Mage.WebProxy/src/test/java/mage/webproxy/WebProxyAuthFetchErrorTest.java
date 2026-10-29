@@ -65,6 +65,18 @@ public class WebProxyAuthFetchErrorTest {
             return out;
         }
 
+        /** Frames of {@code type} whose message is exactly {@code msg} — the
+         *  auth-reject surface, separated from a handler's own failure frames. */
+        List<JsonObject> framesWithMessage(String type, String msg) {
+            List<JsonObject> out = new ArrayList<>();
+            for (JsonObject o : frames(type)) {
+                if (o.has("message") && msg.equals(o.get("message").getAsString())) {
+                    out.add(o);
+                }
+            }
+            return out;
+        }
+
         /** The single frame sent in this test (fails when the count is not 1). */
         JsonObject onlyFrame() {
             Assert.assertEquals("exactly one frame must be sent, got: " + sent, 1, sent.size());
@@ -165,15 +177,21 @@ public class WebProxyAuthFetchErrorTest {
     public void tokenlessProxyHasNoAuthReject() {
         RecordingSession session = new RecordingSession(); // no -Dwebproxy.authToken
 
-        // The LLM capability gate answers here (no server connected in a unit
-        // test) — but it must NOT be the AUTH gate's frame.
+        // Both handlers answer on the BACKGROUND pool when the session is not
+        // auth-gated (handleFetchModels → submitBackground → "Connection refused"
+        // → models_error), so asserting the ABSENCE of the frame type measured the
+        // scheduler, not the contract: measured 2026-10-28, the same commit was
+        // green on one host and red on a faster one because the worker won the
+        // race and its models_error landed before the assert. The AUTH gate is the
+        // only thing that answers SYNCHRONOUSLY inside onWebSocketText, so assert
+        // on its message and the test no longer depends on who wins.
         session.onWebSocketText("{\"type\":\"fetch_models\",\"endpoint\":\"http://localhost:11434/v1/chat/completions\"}");
         session.onWebSocketText("{\"type\":\"fetch_personalities\"}");
 
         Assert.assertEquals("the auth gate must never fire on an open proxy",
-                0, session.frames("models_error").size());
+                0, session.framesWithMessage("models_error", AUTH_MESSAGE).size());
         Assert.assertEquals("the auth gate must never fire on an open proxy",
-                0, session.frames("personalities_error").size());
+                0, session.framesWithMessage("personalities_error", AUTH_MESSAGE).size());
     }
 
     /** The message text is one shared definition so the frontend copy cannot drift. */

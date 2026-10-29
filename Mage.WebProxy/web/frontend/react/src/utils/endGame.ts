@@ -1,7 +1,6 @@
 /**
  * End-of-game presentation rules shared by the game-end dialog, the game-log
- * renderer, and the lobby/replay winner rows (
- * presentation.md).
+ * renderer, and the lobby/replay winner rows.
  *
  * WHY THIS MODULE EXISTS
  * ----------------------
@@ -16,9 +15,10 @@
  *
  * OUR server now ships the reason itself: GameEndView carries `endReason`
  * (mage.game.GameEndReason — "llm_failure" | "concede" | "timeout" | "idle" |
- * "quit" | "unknown"), and the proxy puts it on the rich `game_over` frame as
- * `endReason` for the viewer's OWN seat (null for a watcher, who has no seat).
- * That field is authoritative and is what endDialogKind uses first.
+ * "quit" | "technical_error" | "unknown"), and the proxy puts it on the rich
+ * `game_over` frame as `endReason` for the viewer's OWN seat (null for a
+ * watcher, who has no seat). That field is authoritative and is what
+ * endDialogKind uses first.
  *
  * The log-line inference remains ONLY as the fallback for an older server (or
  * an older proxy) whose payload omits the field: GameEndView used to expose
@@ -137,15 +137,25 @@ export function logHasTerminalFailure(events: Array<{ message?: string }>): bool
  *  - 'defeat'             — the viewer lost (unchanged).
  *  - 'technical-victory'  — a WIN that was awarded because the opponent
  *                           forfeited on a terminal provider failure.
+ *  - 'technical-error'    — a WIN the ENGINE awarded on a critical server/game
+ *                           error. The game did not play out, so this is NOT
+ *                           presented as a victory.
  *  - 'victory'            — a played-out win (unchanged).
  *
  * PRECEDENCE:
  *  1. !hasWon -> 'defeat'. A lost seat is a lost seat whatever the reason says
- *     (a timeout/idle/quit reason on the viewer's own seat is still a loss).
+ *     (a timeout/idle/quit reason on the viewer's own seat is still a loss; a
+ *     technical-error game also awards the non-winner a loss).
  *  2. `endReason === 'llm_failure'` -> 'technical-victory', for ANY seat count.
  *     The engine records that reason exactly where LLMPlayer.concedeOnTerminalFailure
  *     concedes, so it is authoritative — and it is the reason >2-seat games were
  *     previously mislabelled as played-out wins.
+ *  2b. `endReason === 'technical_error'` -> 'technical-error', for ANY seat
+ *     count. The engine stamps it in GameImpl.endWithTechnicalWinner when a
+ *     critical server/game error forced it to award a winner by life/time/
+ *     random: the seat has `hasWon` true but the game did NOT play out, so the
+ *     dialog names the server error instead of saying "Victory!". It is checked
+ *     BEFORE the ordinary-win arm and is independent of the log-line heuristic.
  *  3. any other PRESENT reason ('concede' | 'timeout' | 'idle' | 'quit' |
  *     'unknown') -> 'victory'. A click-concede, a clock flag or a quit is not a
  *     provider failure; the field is trusted over a stale fatal log line that a
@@ -161,17 +171,22 @@ export function logHasTerminalFailure(events: Array<{ message?: string }>): bool
  * Why keep the fallback at all: the browser talks to stock XMage servers too
  * (see AGENTS.md stock-LLMage pairing), and those omit `endReason` entirely.
  */
-export type EndDialogKind = 'victory' | 'technical-victory' | 'defeat'
+export type EndDialogKind = 'victory' | 'technical-victory' | 'technical-error' | 'defeat'
 
 export const END_DIALOG_TITLES: Record<EndDialogKind, string> = {
   victory: 'Victory!',
   'technical-victory': 'Victory (by forfeit)',
+  'technical-error': 'Game ended on server error',
   defeat: 'Defeat',
 }
 
 /** The explanatory line the technical-victory dialog adds under its title. */
 export const END_DIALOG_TECHNICAL_NOTE =
   'Opponent forfeited — LLM provider failure. The game did not play out.'
+
+/** The explanatory line the technical-error dialog adds under its title. */
+export const END_DIALOG_TECHNICAL_ERROR_NOTE =
+  'The server hit a critical error and could not continue the game. A result was awarded automatically — the game did not play out.'
 
 export function endDialogKind(
   hasWon: boolean,
@@ -184,7 +199,11 @@ export function endDialogKind(
   // ('unknown' is the engine's "nothing recorded" default — a played-out win —
   // so it takes the same branch as the other non-failure reasons.)
   if (typeof endReason === 'string' && endReason.length > 0) {
-    return endReason === 'llm_failure' ? 'technical-victory' : 'victory'
+    if (endReason === 'llm_failure') return 'technical-victory'
+    // An engine-awarded technical result is not a win the player earned: name
+    // the server error instead of "Victory!".
+    if (endReason === 'technical_error') return 'technical-error'
+    return 'victory'
   }
   // Fallback: a stock/older server, or a watcher's null. Exact for 1v1 only.
   if (playerCount === 2 && logHasTerminalFailureFlag) return 'technical-victory'

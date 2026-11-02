@@ -75,7 +75,7 @@ fires when the property is ABSENT, silently flipping default builds to stock
 **Runtime capability contract** (`ServerCapabilities.probe`, Mage.WebProxy):
 right after `connectStart` the proxy reads the server's own `ServerState` —
 `llm` = `playerTypes` contains `COMPUTER_LLM`. The `connected` WS message
-carries `{llm, replayScrubber, replaySidecar, serverVersion, playerTypes}`.
+carries `{llm, p1, replayScrubber, replaySidecar, serverVersion, playerTypes}`.
 The probe is honest by construction: an LLMage server reports `llm=true` even
 to a stock proxy; the stock client's suppression is compile-time (bundle), not
 wire-side. When `llm=false` the frontend hides the LLM tab, LLM seat option,
@@ -86,12 +86,16 @@ on create_table/create_tournament. `GET /config` reports the build flavor as
 `{"hideServerTarget":…,"llmage":…}`.
 
 **Wire-compat contract**: `MatchView`/`Seat`/`MatchOptions` suids are
-pinned to the official-server (upstream `xmage_1.4.61V1`) values; extra fork
-fields ride harmlessly (name-matched per field). Guard: `WireCompatSuidTest`
-in Mage.WebProxy — if you touch those classes' fields, re-derive the pin
-deliberately instead of letting it change by accident. Live checks:
-`Mage.WebProxy/scripts/verify-capability-gating.py` (legs a/b) and
-`verify-capability-gating-legc.py` (leg c: stock build ↔ LLMage server, local).
+pinned to the official-server (upstream `xmage_1.4.62V1`) values; extra fork
+fields ride harmlessly (name-matched per field). The pin was re-derived
+2026-10-20 from a clean `git archive` export of tag `xmage_1.4.62V1`
+(commit `eb69d05b88`), compiled with `mvn -pl Mage.Common,Mage -am
+-DskipTests compile` and read with `ObjectStreamClass.lookup`; all three
+values are unchanged from the 1.4.61 pin (1.4.61V1..1.4.62V1 touches none of
+these classes). Guard: `WireCompatSuidTest` in Mage.WebProxy — if you touch
+those classes' fields, re-derive the pin deliberately instead of letting it
+change by accident. Live checks: `Mage.WebProxy/scripts/verify-capability-gating.py`
+(legs a/b) and `verify-capability-gating-legc.py` (leg c, local).
 
 ## Deploy
 
@@ -155,7 +159,7 @@ launch/monitoring:
 - `start-server.sh` — **canonical LLM configuration point.** All `xmage.llm[2].*`
   Java properties are set here as `-D` flags, driven by env vars with defaults
   inline. To change models/effort/dialects: export `LLM1_MODEL`, `LLM1_EFFORT`,
-  `LLM1_THINKING_DIALECT`, etc. (defaults: `gemma4:31b-cloud`/`high` +
+  `LLM1_THINKING_DIALECT`, `LLM1_API_DIALECT`, etc. (defaults: `gemma4:31b-cloud`/`high` +
   `deepseek-v4-flash:cloud`/`max` — confirmed intended, don't revert) or edit
   the env block in the script. Also archives old logs and bootstraps plugin
   symlinks — run this rather than invoking `java` directly.
@@ -164,7 +168,9 @@ launch/monitoring:
     silently ignored and the seat ran at `LLMConfig`'s `"max"` default. After
     changing any
     effort/dialect value, **confirm it took effect** by grepping the boot line
-    `LLM thinking probe OK (... effort=<level>)` for the next table join.
+    `LLM dialect probe OK (<model>, apiDialect=…, thinkingDialect=…, effort=…)`
+    for the next table join (renamed from `LLM thinking probe OK` when the probe
+    learned to speak the configured API dialect).
   - Per-seat web-UI overrides are applied by `applyOverrides()` and only write non-null
     fields, so a form left at "(server default)" correctly inherits this script's values.
 - `start-server-charm.sh` — hosted-deployment launcher: reads the API key from the
@@ -322,12 +328,19 @@ Key things to know about `LLMPlayer.java`:
   — it's a no-op for non-LLM games (flag defaults false, enabled by `LLMPlayer.init`).
   Do NOT re-add `state.addGameLog()` directly in `GameImpl.informPlayers()` — use the
   DataCollector hook to stay aligned with upstream.
+- **API dialects**: per-model prop
+  `xmage.llm[2].api_dialect` selects the provider wire protocol —
+  `chat-completions` (default) | `openai-responses` | `anthropic-messages`; the
+  codec layer lives in `ApiDialect`/`DialectCodecs` + the three `*Codec` classes,
+  and an unknown value fails fast at seat construction. The GUI dialog
+  (`API Dialect`) and the Mage.WebProxy seat JSON (`apiDialect`) expose the same
+  control; old `.game` saves without the field normalise to chat-completions.
 - **Thinking dialects**: per-model props
   `xmage.llm[2].thinking_dialect` (`effort` | `budget`), `thinking_max_tokens`
   (cap, default 32768, 0 = no cap), `terse_answer_stop` (default true),
   `skip_thinking_probe` (default false; true for sandboxed CI). A startup probe
-  validates thinking params against the endpoint at boot — invalid config fails
-  fast, not at first call.
+  validates thinking params against the endpoint at boot, speaking the configured
+  API dialect — invalid config fails fast, not at first call.
 - **API retry policy** (`LLM_MAX_RETRIES = 5`): retry 429/5xx, IOExceptions, and
   empty-answer responses (honor `Retry-After`, else exponential backoff 2s→32s cap);
   fail immediately on other 4xx. After 5 attempts, crash — never loop forever.
